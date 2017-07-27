@@ -1,0 +1,55 @@
+#!/bin/bash
+
+INFO="
+Use 'wget' to download a snapshot of a website.
+
+Usage:
+    backup-http <http://domain/path>
+"
+
+if [ -z "$1" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+PROTOCOL=http
+URL="$1"
+case "$1" in
+    http://*) URL=${1:7} ;;
+    https://*) PROTOCOL=https; URL=${1:8} ;;
+esac
+DOMAIN="${URL%%/*}"
+SPATH="${URL:${#DOMAIN}}"
+SPATH="${SPATH%/*}"
+SPATH="${SPATH:-/}"
+
+OUTF="$DOMAIN$(echo ${SPATH%/} | tr / -)"
+OUTF="$OUTF-$(date '+%Y-%m-%d').tgz"
+if [ -e "$OUTF" ]; then
+    echo "File '$OUTF' already exits!" 1>&2
+    exit 1
+fi
+
+( \
+    cd "$TMPDIR" && \
+    wget --no-verbose -r -p -E -H -k -nH "-D$DOMAIN" \
+        "-I$SPATH" "$PROTOCOL://$DOMAIN$SPATH" \
+)
+WGETRET=$?
+
+if [ $WGETRET -ne 0 -a $WGETRET -ne 8 ]; then
+    echo "Wget returned error code $WGETRET" 1>&2
+    exit 1
+fi
+
+( cd "$TMPDIR" && tar -c * ) | gzip > "$OUTF" || exit 1
+
+if [ $WGETRET -ne 0 ]; then
+    echo "Warning: Wget returned error code $WGETRET" 1>&2
+    exit 1
+fi
+
+exit 0

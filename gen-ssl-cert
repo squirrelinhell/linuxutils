@@ -1,0 +1,39 @@
+#!/bin/bash
+
+INFO="
+Generate a self-signed SSL certificate.
+
+Usage:
+    gen-ssl-cert <domain name>
+"
+
+if [ -z "$1" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+cd "$TMPDIR" || exit 1
+
+cat /etc/ssl/openssl.cnf > k.cnf || exit 1
+echo >> k.cnf
+echo "[SAN]" >> k.cnf
+echo "subjectAltName=DNS:$1" >> k.cnf
+
+openssl req -x509 \
+    -new \
+    -nodes -subj "/C=US/ST=CA/O=Example/CN=$1" \
+    -reqexts SAN -extensions SAN \
+    -config k.cnf \
+    -keyout k.key \
+    -days 100000 \
+    -out k.pem \
+    || exit 1
+
+openssl x509 -in k.pem -noout -text
+
+cat <(echo) k.pem <(echo) k.key || exit 1
+
+certutil -d "sql:$HOME/.pki/nssdb" -A -t "P,," -n k.pem -i k.pem \
+    || exit 1

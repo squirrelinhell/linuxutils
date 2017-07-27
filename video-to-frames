@@ -1,0 +1,105 @@
+#!/bin/bash
+
+INFO="
+Convert a video to individual frames and a WAV file.
+
+Usage:
+    video-to-frames [ ... options ... ] <video> <dir>
+    video-to-frames [ ... options ... ] <video> <dir> <skip>
+    video-to-frames [ ... options ... ] <video> <dir> <skip> <count>
+
+Options:
+    --delay-audio <seconds>
+"
+
+DELAY_AUDIO=0
+if [ "x$1" == x--delay-audio ]; then
+    shift
+    DELAY_AUDIO="$1"
+    shift
+fi
+
+if [ "x$1" = x -o ! -f "$1" -o "x$2" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+VIDFILE="$1"
+OUTDIR="$2"
+FRAME_SKIP=0
+[ "x$3" = x ] || FRAME_SKIP="$3"
+FRAME_COUNT=0
+[ "x$4" = x ] || FRAME_COUNT="$4"
+mkdir -p "$OUTDIR" || exit 1
+
+EXISTING_FRAMES=0
+CLIP_NR=1
+CLIP_DIR="$OUTDIR/"$(printf "video%03d" $CLIP_NR)
+while [ -e "$CLIP_DIR" ]; do
+    N=$(ls "$CLIP_DIR" | grep "png$" | wc -l) || exit 1
+    let EXISTING_FRAMES=$EXISTING_FRAMES+$N
+    let CLIP_NR=$CLIP_NR+1
+    CLIP_DIR="$OUTDIR/"$(printf "video%03d" $CLIP_NR)
+done
+mkdir "$CLIP_DIR" || exit 1
+
+if [ "x$EXISTING_FRAMES" != x0 ]; then
+    echo "Info: Detected $EXISTING_FRAMES video frames in '$OUTDIR'" 1>&2
+fi
+
+FPS=$(ffprobe "$VIDFILE" -v 0 -select_streams v \
+    -print_format flat -show_entries stream=r_frame_rate) || exit 1
+FPS=$(echo "$FPS" | cut -d '"' -f 2) || exit 1
+FPS=$(bc <<<"scale=8; $FPS") || exit 1
+
+echo "Info: Detected frame rate: $FPS fps" 1>&2
+
+if [ "x$FRAME_COUNT" = x0 ]; then
+    echo "Extracting frames (skip=$FRAME_SKIP)..."
+    ffmpeg -loglevel 16 -accurate_seek -r 1 -i "$VIDFILE" \
+        -an -ss "$FRAME_SKIP" \
+        -f image2 "$CLIP_DIR/f%08d.png" || exit 1
+else
+    echo "Extracting $FRAME_COUNT frames (skip=$FRAME_SKIP)..."
+    ffmpeg -loglevel 16 -accurate_seek -r 1 -i "$VIDFILE" \
+        -an -ss "$FRAME_SKIP" -t "$FRAME_COUNT" \
+        -f image2 "$CLIP_DIR/f%08d.png" || exit 1
+    N_CREATED=$(ls "$CLIP_DIR" | wc -l)
+    if [ "x$N_CREATED" != "x$FRAME_COUNT" ]; then
+        echo "Error: extracted $N_CREATED frames out of $FRAME_COUNT!" 1>&2
+        exit 1
+    fi
+fi
+
+AUDIO_SKIP=$(bc <<<"scale=8; ($FRAME_SKIP)/($FPS) - ($DELAY_AUDIO)") || exit 1
+AUDIO_PAD=$(bc <<<"scale=8; ($EXISTING_FRAMES)/($FPS)") || exit 1
+
+case "$AUDIO_SKIP" in
+    -*)
+        AUDIO_PAD=$(bc <<<"scale=8; ($AUDIO_PAD)-($AUDIO_SKIP)") || exit 1
+        AUDIO_SKIP=0
+    ;;
+esac
+
+AUDIO_FILE="$OUTDIR/"$(printf "audio%03d.wav" $CLIP_NR)
+
+if [ "x$AUDIO_PAD" = x0 ]; then
+    echo "Importing audio (skip=${AUDIO_SKIP}s)..."
+    ffmpeg -loglevel 16 -i "$VIDFILE" -ss "$AUDIO_SKIP" -vn \
+        "$AUDIO_FILE" || exit 1
+else
+    echo "Importing audio (skip=${AUDIO_SKIP}s, pad=${AUDIO_PAD}s)..."
+    ffmpeg -loglevel 16 -i "$VIDFILE" -ss "$AUDIO_SKIP" -vn \
+        "$TMPDIR/audio_2.wav" || exit 1
+    A_CHAN=$(sox --i -c "$TMPDIR/audio_2.wav") || exit 1
+    A_RATE=$(sox --i -r "$TMPDIR/audio_2.wav") || exit 1
+    sox -r "$A_RATE" -c "$A_CHAN" -n "$TMPDIR/audio_1.wav" \
+        trim 0 "$AUDIO_PAD" || exit 1
+    sox "$TMPDIR/audio_1.wav" "$TMPDIR/audio_2.wav" \
+        "$AUDIO_FILE" || exit 1
+fi
+
+exit 0

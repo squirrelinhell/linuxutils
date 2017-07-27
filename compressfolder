@@ -1,0 +1,76 @@
+#!/bin/bash
+
+INFO="
+Compress all folder contents into a .tgz archive
+and remove the source (only if successful).
+
+Usage:
+    compressfolder <folder> [ <output.tgz> ]
+"
+
+SRCDIR="${1%%/}"
+OUTFILE="$2"
+
+if [ "x$SRCDIR" = x -o ! -d "$SRCDIR" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+if [ "x$OUTFILE" = x ]; then
+    OUTFILE="$SRCDIR.tgz"
+fi
+
+if [ -e "$OUTFILE" ]; then
+    echo "Error: file '$OUTFILE' already exists" 1>&2
+    exit 1
+fi
+
+GZIP_PROG=gzip
+if [ -e "/usr/bin/pigz" -o -e "/bin/pigz" ]; then
+    GZIP_PROG=pigz
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+find "$SRCDIR" -mindepth 1 -type d -printf '%P\n' \
+    > "$TMPDIR/dirs" || exit 1
+
+find "$SRCDIR" -mindepth 1 -not -type d -printf '%P\n' \
+    > "$TMPDIR/objs" || exit 1
+
+cat "$TMPDIR/dirs" "$TMPDIR/objs" \
+    > "$TMPDIR/all" || exit 1
+
+LC_ALL=C sort < "$TMPDIR/dirs" > "$TMPDIR/dirs_sort" || exit 1
+LC_ALL=C sort < "$TMPDIR/objs" > "$TMPDIR/objs_sort" || exit 1
+LC_ALL=C sort < "$TMPDIR/all" > "$TMPDIR/all_sort" || exit 1
+
+tac "$TMPDIR/dirs_sort" > "$TMPDIR/dirs_rev" || exit 1
+
+LINES=$(wc -l < "$TMPDIR/all_sort") || exit 1
+if [ "$LINES" -ge 1 ]; then
+    # Create archive
+    tar --no-recursion -c \
+        --directory="$SRCDIR" \
+        --files-from="$TMPDIR/all_sort" \
+        | "$GZIP_PROG" --best > "$OUTFILE"
+    if [ "x${PIPESTATUS[0]}${PIPESTATUS[1]}" = x00 ]; then
+        # Both tar and gzip finished succcessfully,
+        # attempt to delete source files
+        while IFS='' read -r f ; do
+            rm -f "$SRCDIR/$f" || true
+        done < "$TMPDIR/objs_sort"
+        while IFS='' read -r f ; do
+            rmdir "$SRCDIR/$f" || true
+        done < "$TMPDIR/dirs_rev"
+        rmdir "$SRCDIR" || exit 1
+        exit 0
+    else
+        echo "Errors occurred while compressing, abort" 1>&2
+        exit 1
+    fi
+else
+    echo "Error: source folder is empty" 1>&2
+    exit 1
+fi

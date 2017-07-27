@@ -1,0 +1,114 @@
+#!/bin/bash
+
+INFO="
+Pull from a configured remote folder:
+    auto-rsync pull
+    auto-rsync pull <name>
+
+Push to a configured remote folder:
+    auto-rsync push
+    auto-rsync push <name>
+
+Add a remote folder:
+    auto-rsync add <name> <path>
+
+Note: additional options for rsync can be added directly
+in the configuration file (one option per line).
+"
+
+ACTION="$1"
+shift
+
+if [ "x$ACTION" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+if [ "x$ACTION" = xadd ]; then
+    NAME="$1"
+    REMOTE="$2"
+    if [ "x$NAME" = x -o "x$REMOTE" = x ]; then
+        echo "$INFO" 1>&2
+        exit 1
+    fi
+    mkdir -p .auto-rsync || exit 1
+    if [ -e ".auto-rsync/$NAME-pull" -o -e ".auto-rsync/$NAME-push" ]; then
+        echo "Error: remote '$NAME' already exists" 1>&2
+        exit 1
+    fi
+    echo "$REMOTE" > ".auto-rsync/$NAME-pull" || exit 1
+    echo "$REMOTE" > ".auto-rsync/$NAME-push" || exit 1
+    exit 0
+fi
+
+DEF_OPTS="
+-rlxt
+--omit-dir-times
+--exclude=/.auto-rsync
+"
+
+function do_pull {
+    local name="$1"
+    local remote="${2%/}/"
+    local opts="$3"
+    echo "Pulling from '$name'..."
+    rsync $DEF_OPTS $opts --dry-run -i "$remote" . || return 1
+    read -p "Pull the changes listed above from '$name'? (y/n) " confirm || return 1
+    if [ "x$confirm" == xy ]; then
+        rsync $DEF_OPTS $opts --progress "$remote" . || return 1
+        return 0
+    fi
+    return 0
+}
+
+function do_push {
+    local name="$1"
+    local remote="${2%/}/"
+    local opts="$3"
+    echo "Pushing to '$name'..."
+    rsync $DEF_OPTS $opts --dry-run -i . "$remote" || return 1
+    read -p "Push the changes listed above to '$name'? (y/n) " confirm || return 1
+    if [ "x$confirm" == xy ]; then
+        rsync $DEF_OPTS $opts --progress . "$remote" || return 1
+        return 0
+    fi
+    return 0
+}
+
+function user_choice {
+    if [ $(echo "$@" | wc -l) -le 1 ]; then
+        NAME="$1"
+    else
+        select n in $@ ; do
+            NAME="$n"
+            break
+        done
+    fi
+    if [ ! -f ".auto-rsync/$NAME-$ACTION" ]; then
+        exit 1
+    fi
+}
+
+if [ "x$ACTION" = xpull -o "x$ACTION" = xpush ]; then
+    NAME="$1"
+    if [ "x$NAME" = x -o ! -f ".auto-rsync/$NAME-$ACTION" ]; then
+        NAME=""
+        NAMES=$(ls .auto-rsync 2>/dev/null | grep -Po ".*(?=-$ACTION$)")
+        if [ x = "x$NAMES" ]; then
+            echo "Error: no remotes are configured for '$ACTION'" 1>&2
+            exit 1
+        fi
+        IFS=$'\n' user_choice "$NAMES"
+    fi
+    DATA=$(cat ".auto-rsync/$NAME-$ACTION") || exit 1
+    FOLD=$(echo "$DATA" | head -n 1) || exit 1
+    OPTS=$(echo "$DATA" | tail -n +2) || exit 1
+    if ! IFS=$'\n' "do_$ACTION" "$NAME" "$FOLD" "$OPTS" ; then
+        echo "Error: remote '$NAME' failed to sync" 1>&2
+        exit 1
+    fi
+    exit 0
+fi
+
+echo "Error: unknown action '$ACTION'" 1>&2
+exit 1

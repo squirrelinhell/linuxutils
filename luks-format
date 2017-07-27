@@ -1,0 +1,15 @@
+#!/bin/bash
+
+INFO="
+Format an encrypted partition.
+
+Usage:
+    luks-format <device>
+"
+
+if [ "x$1" = "x" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+exec cryptsetup -v --key-size 512 --use-random --verify-passphrase luksFormat "$@"

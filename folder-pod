@@ -1,0 +1,43 @@
+#!/bin/bash
+
+INFO="
+Check whether a folder contains only regular files
+with 0644 permission, and folders with 0755 permission.
+
+Print everything that does not follow this pattern.
+
+Usage:
+    folder-pod [ options ] <folder>
+
+Options:
+    -s     Set permissions of folders to 0755 and of files to 0644.
+"
+
+OPT_SET=0
+if [ "x$1" = x-s ]; then
+    OPT_SET=1
+    shift
+fi
+
+SRCDIR="$1"
+if [ "x$1" = x -o ! -d "$SRCDIR" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+if [ "x$OPT_SET" = x1 ]; then
+    exec find "$SRCDIR" \
+        '(' \
+            -type f -not -perm 0644 -exec chmod 0644 '{}' ';' \
+        ')' \
+        -o \
+        '(' \
+            -type d -not -perm 0755 -exec chmod 0755 '{}' ';' \
+        ')'
+else
+    exec find "$SRCDIR" \
+        -not '(' \
+            '(' -type f -perm 0644 ')' \
+            -o '(' -type d -perm 0755 ')' \
+        ')'
+fi

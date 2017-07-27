@@ -1,0 +1,42 @@
+#!/bin/bash
+
+INFO="
+Transform a file into a shell 'echo' command that is going
+to reproduce exactly the same bytes.
+
+Usage:
+    shell-paste <file>
+"
+
+if test -z "$1"; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+if ! test -f "$1"; then
+    echo "Error: File '$1' does not exist!" 1>&2
+    exit 1
+fi
+
+
+LINE=
+FIRST=1
+flush() {
+    if test -n "$FIRST"; then
+        echo -n "echo -n $'$LINE'"
+        FIRST=
+    else
+        echo "\\"
+        echo -n "$'$LINE'"
+    fi
+    LINE=
+}
+while read byte; do
+    test ${#LINE} -lt 64 || flush
+    LINE="$LINE\\x$byte"
+done < <(od -v -A n -t x1 -w1 "$1") || exit 1
+test -z "$LINE" || flush
+test -z "$FIRST" || echo -n 'echo -n'
+echo
+
+exit 0

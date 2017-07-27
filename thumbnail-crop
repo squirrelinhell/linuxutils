@@ -1,0 +1,21 @@
+#!/bin/bash
+
+INFO="
+Resize and crop images to exactly match the specified size.
+
+Usage:
+    thumbnail-crop WxH <input file or folder>
+"
+
+if [ "x$1" = x -o "x$2" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+DIMS="$1"
+shift
+INPUT="$1"
+shift
+
+exec batch-convert "$INPUT" png convert -resize "$DIMS^" \
+    -gravity center -extent "$DIMS" "$@"

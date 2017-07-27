@@ -1,0 +1,31 @@
+#!/bin/bash
+
+INFO="
+Standarize a voice recording.
+
+Usage:
+    voice-rec <audiofile>
+"
+
+if [ "x$1" = "x" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+ffmpeg -v 0 -i "$1" -ac 1 -ar 16000 -sample_fmt s16 "$TMPDIR/a.wav" \
+    </dev/null >/dev/null 2>&1 || exit 1
+
+VOL=$(sox "$TMPDIR/a.wav" -n stat -v </dev/null 2>&1 >/dev/null | grep '^[0-9]') || exit 1
+sox -Dv "$VOL" "$TMPDIR/a.wav" "$TMPDIR/b.wav" </dev/null >/dev/null 2>&1 || exit 1
+
+lame --quiet -V 4 "$TMPDIR/b.wav" -o "$TMPDIR/c.mp3" </dev/null >/dev/null 2>&1 || exit 1
+
+FNAME=$(sha256sum "$TMPDIR/c.mp3" </dev/null | cut -b 1-16) || exit 1
+OUT="$FNAME.mp3"
+
+[ -f "$OUT" ] || cp "$TMPDIR/c.mp3" "$OUT" || exit 1
+echo "$OUT"
+exit 0

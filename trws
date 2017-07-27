@@ -1,0 +1,15 @@
+#!/bin/bash
+
+INFO="
+Remove trailing whitespace from text.
+
+Usage:
+    trws < inputfile
+"
+
+if [ "x$1" != x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+exec sed -r -e 's/\x0d\n/\n/g;s/\x0d/\n/g;s/\s+$//'

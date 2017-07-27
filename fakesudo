@@ -1,0 +1,71 @@
+#!/bin/bash
+
+if ! [ "x$FAKESUDO" = x ]; then
+    [ "x$1" = x ] || exec "$@"
+    echo "You are already in a 'fakesudo' environment." 1>&2
+    exit 1
+fi
+
+if ! [ "$UID" -gt 0 ]; then
+    echo "Do not run 'fakesudo' as root." 1>&2
+    exit 1
+fi
+
+MNT="/tmp/fakesudo.$UID/mnt"
+OVER="/tmp/fakesudo.$UID/over"
+DATA="$HOME/.fakesudo"
+
+if ! grep -q "$MNT" /proc/mounts; then
+    echo "Setting up unionfs at $MNT..." 1>&2
+
+    mkdir -p "$MNT" "$DATA" || exit 1
+
+    rm -rf "$OVER" || true
+    mkdir "$OVER"{,/usr,/usr/bin,/bin,/sbin} || exit 1
+
+    ln -s /bin/true "$OVER/sbin/su"
+    ln -s /bin/true "$OVER/bin/su"
+    ln -s /bin/true "$OVER/usr/bin/su"
+
+    echo '#!/bin/bash
+        [ "x$1" = x ] || exec "$@"
+        exit 0
+    ' > "$OVER/bin/sudo"
+    chmod +x "$OVER/bin/sudo"
+    ln -s "../../bin/sudo" "$OVER/usr/bin/sudo"
+
+    echo '#!/bin/bash
+        LD_TRACE_LOADED_OBJECTS=1 exec "$@"
+    ' > "$OVER/usr/bin/ldd"
+    chmod +x "$OVER/usr/bin/ldd"
+
+    OPTS="cow,uid=$(id -u),gid=$(id -g),suid,dev"
+    if unionfs --help 2>&1 | grep -q symlink_prefix; then
+        OPTS="$OPTS,symlink_prefix=$MNT"
+    fi
+    if ulimit -n 10000 >/dev/null 2>&1; then
+        OPTS="$OPTS,max_files=10000"
+    fi
+
+    unionfs -o "$OPTS" "$OVER=ro:$DATA=rw:/=ro" "$MNT" || exit 1
+fi
+
+function get_excludes() {
+    find / -mindepth 1 -maxdepth 1 | \
+        grep -E -v '^/(bin|boot|etc|lib|opt|root|run|sbin|usr|var)?($|/)'
+    echo /opt/google/chrome/chrome-sandbox
+    echo -n /usr/lib/chromium/chromium-sandbox
+}
+
+export FAKECHROOT_EXCLUDE_PATH="$(get_excludes | tr $'\n' :)"
+export FAKECHROOT_CMD_SUBST="/sbin/ldconfig=$MNT/bin/true"
+
+START_CMD='
+cd "$1"
+shift
+export FAKESUDO=true
+exec fakeroot -u -- "$@"
+'
+
+exec fakechroot chroot "$MNT" \
+    /bin/bash -l -c "$START_CMD" - "$(pwd)" "$@"

@@ -1,0 +1,80 @@
+#!/bin/bash
+
+INFO="
+Store a browser profile in an archive, while keeping a working
+copy in RAM to reduce disk usage. Supported browsers:
+ * chromium
+ * firefox
+ * opera
+
+Usage:
+    browser-wrapper <browser-executable> [ ...options... ]
+"
+
+BROWSER_EXEC=
+case "$(basename $0)" in
+    *wrapper*) BROWSER_EXEC="$1"; shift ;;
+    *) BROWSER_EXEC="/usr/bin/$(basename $0)" ;;
+esac
+
+if test -z "$BROWSER_EXEC"; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+if ! test -f "$BROWSER_EXEC"; then
+    echo "File not found: $BROWSER_EXEC" 1>&2
+    exit 1
+fi
+
+BROWSER="$(basename $BROWSER_EXEC)"
+PROFILE="/dev/shm/profile.$UID.$BROWSER"
+PACKED="$HOME/.profile-$BROWSER.tgz"
+
+case "$(basename $BROWSER)" in
+    *chrom*)
+        OPTS="--user-data-dir=$PROFILE"
+        PACK="^\\./(first run$)|(default/(preferences$)|(bookmarks$))"
+    ;;
+    *firefox*)
+        export XRE_PROFILE_PATH="$PROFILE"
+        OPTS=""
+        PACK="^\\./prefs\\.js$"
+    ;;
+    *opera*)
+        OPTS="-pd $PROFILE"
+        PACK="^\\./(bookmarks\\.)|(\\.ini$)"
+    ;;
+    *)
+        echo "Unsupported browser: $BROWSER" 1>&2
+        exit 1
+    ;;
+esac
+
+if mkdir "$PROFILE" >/dev/null 2>&1; then
+    test ! -f "$PACKED" || tar -C "$PROFILE" -zxf "$PACKED"
+fi
+
+mkdir -p "$PROFILE/.bw.lock"
+
+if ! touch "$PROFILE/.bw.lock/p$$" >/dev/null 2>&1; then
+    echo "Profile directory is locked!" 1>&2
+    exit 1
+fi
+
+trap "rm -f $PROFILE/.bw.lock/p$$" EXIT
+"$BROWSER_EXEC" $OPTS "$@"
+ret=$?
+rm -f $PROFILE/.bw.lock/p$$
+
+if rmdir "$PROFILE/.bw.lock"; then
+    cd "$PROFILE" || exit 1
+    FILES=$(find . -type f | grep -iE "$PACK")
+    test ! -f "$PACKED" || FILES=$FILES$(echo; tar -ztf "$PACKED")
+    tar --no-recursion --ignore-failed-read -c \
+        --files-from=<(cat <<< "$FILES" | sort | uniq) | \
+        gzip > "$PACKED.NEW" || exit 1
+    mv -f "$PACKED.NEW" "$PACKED" || exit 1
+fi
+
+exit $ret

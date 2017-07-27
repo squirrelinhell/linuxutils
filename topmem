@@ -1,0 +1,41 @@
+#!/bin/bash
+
+if [ "$(whoami)" = root ]; then
+    if ( echo 1 > /proc/sys/vm/drop_caches ) 2>/dev/null; then
+        MEMINFO=$(free -m)
+        MEMINFO=$(echo $(echo "$MEMINFO" | grep ^Mem) | cut -d ' ' -f 3)
+        echo "Used memory: ${MEMINFO}m" 1>&2
+    fi
+fi
+
+SUM=
+LAST=
+
+ps -A -o rss=,comm= | tr '/' ' ' | \
+    while read a b c; do
+        echo "$b" "$a"
+    done | sort | \
+    while true; do
+        if read a b; then
+            if [ "$LAST" != "$a" ]; then
+                [ -z "$SUM" ] || echo "$SUM" "$LAST"
+                LAST=$a
+                SUM=
+            fi
+            SUM=$((${SUM:-0} + $b))
+        else
+            [ -n "$SUM" ] || echo "$SUM" "$LAST"
+            break
+        fi
+    done | \
+    sort -k1,1 -n -r | \
+    while read a b; do
+        if [ "$a" -le 4096 ]; then
+            [ "$a" -ge 1 ] || continue
+            a="${a}k"
+        else
+            a="$((($a + 512) / 1024))m"
+        fi
+        printf $'%8s %s\n' "$a" "$b"
+    done | \
+    head "$@"

@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+
+import sys
+import tkinter as tk
+
+if len(sys.argv) < 2:
+    sys.stderr.write("\nUsage:\n\n");
+    sys.stderr.write("\tblack-rectangle <WxH>\n\n")
+    sys.exit(1)
+
+class Rectangle:
+    def __init__(self, master, size):
+        self.window = master
+        self.window.overrideredirect(True)
+        self.window.resizable(width=False, height=False)
+        self.window.configure(background = 'black')
+        self.size = size
+        self.pos = 0, 0
+        self.mouse_pos = None
+        self.update_pos()
+        self.window.bind("<ButtonPress-1>", self.on_button_press)
+        self.window.bind("<ButtonRelease-1>", self.on_button_release)
+        self.window.bind("<B1-Motion>", self.on_mouse_move)
+
+    def update_pos(self):
+        x, y = self.pos
+        self.window.geometry("%s+%d+%d" % (self.size, x, y))
+
+    def on_button_press(self, event):
+        self.mouse_pos = event.x, event.y
+        self.window.config(cursor = "fleur")
+
+    def on_button_release(self, event):
+        self.on_mouse_move(event)
+        self.mouse_pos = None
+        self.window.config(cursor = "arrow")
+
+    def on_mouse_move(self, event):
+        if self.mouse_pos is None:
+            return
+        diff = event.x - self.mouse_pos[0], event.y - self.mouse_pos[1]
+        self.pos = self.pos[0] + diff[0], self.pos[1] + diff[1]
+        self.update_pos()
+
+if __name__ == "__main__":
+    app = Rectangle(tk.Tk(), sys.argv[1])
+    app.window.mainloop()

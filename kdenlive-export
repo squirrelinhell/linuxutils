@@ -1,0 +1,95 @@
+#!/bin/bash
+
+INFO="
+Export positions of video clips from a Kdenlive project.
+
+Usage:
+    kdenlive-export <file.kdenlive>
+"
+
+if [ "x$1" = x -o ! -f "$1" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+PROJ=$(cat "$1" | tr -d $'\n') || exit 1
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+mkdir "$TMPDIR/producers" || exit 1
+
+sed -r -e 's|<producer[^>]* id="([^"]+)"|\n\1 |g' <<<"$PROJ" | \
+    ( read l; while read id l; do
+        cutbetween '<property name="resource">' '<' \
+            <<<"$l" > "$TMPDIR/producers/$id"
+    done )
+
+mkdir "$TMPDIR/frames" || exit 1
+
+sed -r -e 's|<playlist |\n|g' <<<"$PROJ" | \
+    ( read l; while read l; do
+        FRAME=0
+        l=$(cutbetween '' '</playlist>' <<<"$l" | \
+            sed 's|<entry|\ne |g;s|<blank |\nb |g')
+        while read a l; do
+            if [ "x$a" = xb ]; then
+                LEN=$(cutbetween 'length="' '"' <<<"$l") || exit 1
+                let FRAME=$FRAME+$LEN || exit 1
+            fi
+            if [ "x$a" = xe ]; then
+                PROD=$(cutbetween 'producer="' '"' <<<"$l") || exit 1
+                IN=$(cutbetween 'in="' '"' <<<"$l") || exit 1
+                OUT=$(cutbetween 'out="' '"' <<<"$l") || exit 1
+                let SHIFT=$FRAME-$IN
+                F=$IN
+                while [ "$F" -le "$OUT" ]; do
+                    case "$PROD" in
+                        black)
+                            # skip
+                        ;;
+                        *_audio)
+                            # skip
+                        ;;
+                        *)
+                            echo "$SHIFT $PROD" > "$TMPDIR/frames/$FRAME"
+                        ;;
+                    esac
+                    let F=$F+1
+                    let FRAME=$FRAME+1
+                done
+            fi
+        done <<<"$l"
+    done )
+
+if [ ! -e "$TMPDIR/frames/0" ]; then
+    echo "Error: empty first frame!" 1>&2
+    exit 1
+fi
+
+NEXT_CLIP=1
+FRAME=0
+LAST_START=
+LAST_SHIFT=
+LAST_PROD=
+addclip() {
+    local file=$(cat "$TMPDIR/producers/$LAST_PROD") || return 1
+    let len=$FRAME-$LAST_START
+    let start=LAST_START-\($LAST_SHIFT\)
+    echo "video-to-frames $file out $start $len"
+}
+while [ -e "$TMPDIR/frames/$FRAME" ]; do
+    read shift prod < "$TMPDIR/frames/$FRAME"
+    if [ "x$shift,$prod" != "x$LAST_SHIFT,$LAST_PROD" ]; then
+        if [ "x$LAST_START" != x ]; then
+            addclip || exit 1
+        fi
+        LAST_START="$FRAME"
+        LAST_SHIFT="$shift"
+        LAST_PROD="$prod"
+    fi
+    let FRAME=$FRAME+1
+done
+if [ "x$LAST_START" != x ]; then
+    addclip || exit 1
+fi

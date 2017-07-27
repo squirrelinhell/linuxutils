@@ -1,0 +1,19 @@
+#!/bin/bash
+
+INFO="
+Run a command with a strict memory limit.
+
+Usage:
+    memlimit <kb> <command>
+"
+
+if [ "x$1" = x -o "x$2" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+KB=$(($1 * 1024)) || exit 1
+shift
+
+ulimit -d $KB -m $KB -v $KB || exit 1
+exec "$@"

@@ -1,0 +1,35 @@
+#!/bin/bash
+
+INFO="
+Use Ghostscript to compress a PDF file.
+
+Usage:
+    compresspdf <file.pdf>
+    compresspdf <file.pdf> <output.pdf>
+"
+
+if [ ! -f "$1" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+r_compress() {
+    gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -dEmbedAllFonts=true \
+        -sOutputFile="$2" "$1" || return 1
+    return 0
+}
+
+if [ -n "$2" ]; then
+    if [ -e "$2" ]; then
+        echo "File '$2' already exists!" 1>&2
+        exit 1
+    fi
+    r_compress "$1" "$2" || exit 1
+    exit 0
+else
+    TMPFILE=$(mktemp) || exit 1
+    trap "rm -f $TMPFILE" EXIT
+    r_compress "$1" "$TMPFILE" || exit 1
+    cat "$TMPFILE" > "$1" || exit 1
+    exit 0
+fi

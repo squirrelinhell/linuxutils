@@ -1,0 +1,62 @@
+#!/bin/bash
+
+INFO="
+Start a PXE boot server using dnsmasq.
+
+Usage:
+    pxe-boot-server <interface> <kernel> <initrd> [ ...kernel options... ]
+"
+
+NTIF="$1"; shift
+KERN="$1"; shift
+INRD="$1"; shift
+APND="$@"
+
+if [ -z "$NTIF" -o ! -f "$KERN" -o ! -f "$INRD" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+cp /usr/lib/syslinux/pxelinux.0 "$TMPDIR" || exit 1
+cp "$KERN" "$TMPDIR/vmlinuz" || exit 1
+cp "$INRD" "$TMPDIR/initrd.img" || exit 1
+
+[ -z "$APND" ] || APND="append $APND"
+mkdir "$TMPDIR/pxelinux.cfg"
+echo "
+default PXE
+prompt 0
+timeout 0
+label PXE
+    menu label PXE
+    linux /vmlinuz
+    $APND
+    ipappend 1
+    initrd /initrd.img
+" > "$TMPDIR/pxelinux.cfg/default"
+
+IFIP=$(ifconfig "$NTIF") || exit 1
+IFIP=$(echo "$IFIP" | sed -r -e 's/^.*inet\s+([0-9.]+).*$/\1/;t;d')
+case "$IFIP" in
+    [0-9]*)
+        PART1="${IFIP%.*}"
+        PART2="${IFIP##*.}"
+        if [ "$PART2" -gt 200 ]; then
+            DHCP_RANGE="$PART1.130,$PART1.170"
+        else
+            DHCP_RANGE="$PART1.205,$PART1.245"
+        fi
+    ;;
+    *)
+        echo "Error: Could not determine IP address for $NTIF!" 1>&2;
+        exit 1
+    ;;
+esac
+
+dnsmasq --no-daemon --no-hosts -i "$NTIF" \
+        --dhcp-range="$DHCP_RANGE,12h" \
+        --dhcp-boot=pxelinux.0 \
+        --enable-tftp --tftp-root="$TMPDIR" || exit 1

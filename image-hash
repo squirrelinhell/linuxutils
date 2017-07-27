@@ -1,0 +1,62 @@
+#!/bin/bash
+
+INFO="
+Calculate a stable hash that can be used for image deduplication.
+
+Usage:
+    image-hash <image>
+    image-hash --ext <image>
+"
+
+PRINT_EXT=
+if [ "x$1" = x--ext ]; then
+    PRINT_EXT=1
+    shift
+fi
+
+if [ "x$1" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+function image_hash() {
+    local b=($(convert "$1" \
+        -colorspace Gray \
+        -background black -flatten \
+        -resize '9x9!' \
+        \( -clone 0 -flop \) \
+        -average \
+        -crop 5x9+0+0 \
+        +repage \
+        GRAY:- | od -v -An -t u1 -w1)) || return 1
+    [ ${#b[@]} = 45 ] || return 1
+    for y in 0 1 2 3 4 5 6 7; do
+        BITS=
+        for x in 0 1 2 3; do
+            [ ${b[$(($y * 5 + $x + 1))]} -le ${b[$(($y * 5 + $x))]} ]
+            BITS="$BITS$?"
+            [ ${b[$(($y * 5 + $x + 5))]} -le ${b[$(($y * 5 + $x))]} ]
+            BITS="$BITS$?"
+        done
+        printf '%02x' "$((2#$BITS))"
+    done
+    echo
+}
+
+while [ "x$1" != x ]; do
+    if ! [ -f "$1" ]; then
+        echo "Error: could not read '$1'" 1>&2
+        exit 1
+    fi
+    if [ "x$PRINT_EXT" = x1 ]; then
+        EXT=$(identify -format '%m' - <"$1") || exit 1
+        [ "x$EXT" != x ] || exit 1
+        EXT="${EXT,,}"
+        [ "x$EXT" != xjpeg ] || EXT=jpg
+        HASH=$(image_hash "$1") || exit 1
+        echo "$HASH.$EXT"
+    else
+        image_hash "$1" || exit 1
+    fi
+    shift
+done

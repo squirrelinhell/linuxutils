@@ -1,0 +1,55 @@
+#!/bin/bash
+
+INFO="
+Use 'lftp' to download a snapshot of a remote FTP directory.
+
+Usage:
+    backup-ftp -u <user> -p <password> [ -o <outfile.tgz> ] host
+"
+
+if test -z "$1"; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+USER=
+PASS=
+while test -n "$1"; do
+    FILE=
+    while getopts "u:p:" opt; do
+        case "$opt" in
+            u) USER="$OPTARG" ;;
+            p) PASS="$OPTARG" ;;
+            o) FILE="$OPTARG" ;;
+            *) exit 1 ;;
+        esac
+    done
+    shift $(($OPTIND - 1))
+    HOST="$1"
+    shift
+    if test -z "$HOST"; then
+        echo "Error: No host specified!" 1>&2
+        exit 1
+    fi
+    test -n "$FILE" || FILE="ftp-$HOST-$(date '+%Y-%m-%d').tgz"
+    if test -e "$FILE"; then
+        echo "Warning: Skipping '$FILE'" 1>&2
+        continue
+    fi
+    if test -e "$FILE"; then
+        echo "Error: '$FILE.NEW' exits!" 1>&2
+        exit 1
+    fi
+    rm -rf "$TMPDIR/mirror" || true
+    mkdir "$TMPDIR/mirror" || exit 1
+    CMD="mirror --parallel=10 . $TMPDIR/mirror"
+    echo "$CMD" | lftp -u "$USER,$PASS" "$HOST" || exit 1
+    if ! tar -C "$TMPDIR/mirror" -c . | gzip > "$FILE.NEW"; then
+        rm "$FILE.NEW"
+        exit 1
+    fi
+    mv "$FILE.NEW" "$FILE" || exit 1
+done

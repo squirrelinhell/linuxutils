@@ -1,0 +1,23 @@
+#!/bin/bash
+
+INFO="
+Show the last version of a file that was deleted from a git repository.
+
+Usage:
+    git-undelete <file name>
+"
+
+if [ "x$1" = "x" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+COMMITS=$(git log --format=format:'%H' -- "$1") || exit 1
+LAST=$(echo "$COMMITS" | head -n 1) || exit 1
+
+if git show "$LAST:$1" >/dev/null 2>&1; then
+    echo "Error: file '$1' seems to exist (last commit: $LAST)" 1>&2
+    exit 1
+fi
+
+exec git show "$LAST^:$1"

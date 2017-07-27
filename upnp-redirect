@@ -1,0 +1,20 @@
+#!/bin/bash
+
+INFO="
+Use upnpc to redirect a TCP port.
+
+Usage:
+    upnp-redirect <port>
+"
+
+PORT="$1"
+if [ "x$PORT" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+ifconfig | sed -r -e 's|^.*inet ([0-9.]+) .*$|\1|;t;d' | \
+    grep -v 127.* | while read ip; do
+        echo Redirecting $ip:$PORT
+        upnpc -a $ip $PORT $PORT TCP
+    done

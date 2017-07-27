@@ -1,0 +1,30 @@
+#!/bin/bash
+
+INFO="
+Play a pseudorandom melody that depends on a string seed.
+
+Usage:
+    randmelody <seed>
+"
+
+SEED="$1"
+
+if [ "x$SEED" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+SEED=$(echo -n "randmelody$SEED" | sha256sum)
+
+SCALE="CDEGA"
+NOTES=""
+DELAY=""
+for i in 1 2 3 4 5 ; do
+    BYTE1=0x${SEED:$(($i * 4)):2}
+    BYTE2=0x${SEED:$(($i * 4 + 2)):2}
+    NOTES="$NOTES pl ${SCALE:$(( $BYTE1 % 5 )):1}"
+    DELAY="$DELAY 0.$(( $BYTE2 % 10 ))"
+done
+
+echo play -q -n synth 0.2 $NOTES delay $DELAY remix -
+play -q -n synth 0.2 $NOTES delay $DELAY remix -

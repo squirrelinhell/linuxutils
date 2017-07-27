@@ -1,0 +1,109 @@
+#!/bin/bash
+
+INFO="
+Download high resolution images based on Google search results.
+
+Usage:
+    google-images <search query>
+    google-images --stdin
+"
+
+if [ "x$1" = "x" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+USER_AGENT="Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36"
+
+function on_exit() {
+    for p in $(jobs -p); do
+        kill $p >/dev/null 2>&1
+    done
+    rm -rf "$TMPDIR"
+}
+
+function wait_new_job() {
+    while ! [ $(jobs | wc -l) -lt 10 ]; do
+        sleep 0.2
+    done
+}
+
+function download_file() {
+    local id="$1"
+    local url="$2"
+    if ! (cd "$TMPDIR" && timeout 60 wget -q --user-agent="$USER_AGENT" "$url" -O "$id"); then
+        echo "Warning: could not download '$url'" 1>&2
+        return 1
+    fi
+    local dim=$(cd "$TMPDIR" && identify -format "%wx%h" "$id" 2>/dev/null)
+    if [ "x$dim" = x ]; then
+        echo "Warning: could not parse '$url'" 1>&2
+        rm "$TMPDIR/$id" || true
+        return 1
+    fi
+    if ! [ "${dim%%x*}" -ge 1400 -a "${dim##*x}" -ge 900 ] ; then
+        echo "Skipped: '$url' (${dim}px)" 1>&2
+        rm "$TMPDIR/$id" || true
+        return 1
+    fi
+    local name=$(cd "$TMPDIR" && image-hash --ext "$id") || return 1
+    local hash="${name%%.*}"
+    touch .done || return 1
+    if [ -e "$name" ] || grep -q -F "$hash" .done; then
+        echo "Skipped: '$hash' == '$url'" 1>&2
+        rm "$TMPDIR/$id" || true
+        return 1
+    fi
+    cp "$TMPDIR/$id" "$name" || return 1
+    echo "$hash" >> .done || true
+    rm "$TMPDIR/$id" || true
+}
+
+function google_query() {
+    local id="$1"
+    shift
+    local query=$(echo $@)
+    echo "Downloading results for: $query" 1>&2
+    query=${query// /%20}
+    query="https://www.google.com/search?q=$query&espv=2&biw=1366&bih=667&site=webhp&source=lnms&tbm=isch&sa=X&ei=XosDVaCXD8TasATItgE&ved=0CAcQ_AUoAg"
+
+    if ! local page=$(cd "$TMPDIR" && wget -q --user-agent="$USER_AGENT" "$query" -O -); then
+        echo "Warning: could not download '$url'" 1>&2
+        return 1
+    fi
+
+    page=$(hxnormalize -x <<<"$page") || return 1
+    page=$(hxselect div.rg_meta -s $'\n' <<<"$page") || return 1
+
+    local links=$(sed -r -e 's|^.*"ou":"([^"]*)".*$|\1|;t;d' <<<"$page") || exit 1
+    num_links=$(wc -l <<<"$links") || exit 1
+
+    if ! [ "$num_links" -ge 1 ]; then
+        echo "Error: could not find images in '$url'" 1>&2
+        return 1
+    fi
+
+    local image_id=1
+    while read link; do
+        wait_new_job
+        download_file "${id}_${image_id}" "$link" &
+        let image_id=image_id+1
+    done <<<"$links"
+}
+
+TMPDIR=$(mktemp -d) || exit 1
+trap on_exit EXIT
+
+if [ "x$1" = "x--stdin" ]; then
+    shift
+    QID=1
+    while read line; do
+        wait_new_job
+        google_query "$QID" "$@" "$line"
+        let QID=QID+1
+    done
+else
+    google_query 1 "$@"
+fi
+
+wait

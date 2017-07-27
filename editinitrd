@@ -1,0 +1,32 @@
+#!/bin/bash
+
+INFO="
+Edit a packed initrd image.
+
+Usage:
+    editinitrd <filename>
+"
+
+if [ "$1" = "" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+if [ "$UID" -gt 0 ]; then
+    exec fakeroot $0 "$@" || exit 1
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+echo "Unpacking '$1'..."
+cat "$1" | gunzip | ( cd "$TMPDIR" && cpio -i --no-absolute-filenames ) || exit 1
+
+echo "Exit the shell with 'exit 0' to save changes."
+( cd "$TMPDIR" && bash ) || exit 1
+
+echo "Packing '$1'..."
+mv "$1" "$1~" || exit 1
+( cd "$TMPDIR" && ( find . | cpio -H newc -o ) ) | gzip > "$1" || exit 1
+
+exit 0

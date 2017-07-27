@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+
+import sys, socket
+
+def print_help():
+    sys.stdout.write("\n"
+        +"Check HTTP headers of a website.\n\n"
+        +"Usage: headers [ -a | --getall ]\n"
+        +"               [ -p | --printrequest ]\n"
+        +"               [ -u <user agent string> ]\n"
+        +"               [ -r <referrer string> ]\n"
+        +"               http://somesite\n\n")
+
+def fetch(url, opts):
+    if url.startswith("http://"):
+        url = url[7:]
+    elif url.find("://") > 0:
+        raise Exception("Unknown URI type")
+    p = url.find("/")
+
+    host = url
+    doc = "/"
+    if p >= 0:
+        host = url[0:p]
+        doc = url[p:]
+
+    request = "GET "+doc+" HTTP/1.1\r\n"
+    request += "Host: "+host+"\r\n"
+    if "useragent" in opts:
+        request += "User-Agent: "+opts["useragent"]+"\r\n"
+    if "ref" in opts:
+        request += "Referer: "+opts["ref"]+"\r\n"
+    request += "\r\n"
+
+    if "printrequest" in opts:
+        sys.stderr.write(request)
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect((host, 80))
+    s.send(request.encode("ascii"))
+    r = b""
+    while True:
+        buf = s.recv(1024)
+        if len(buf) <= 0:
+            break
+        if "getall" in opts:
+            sys.stdout.buffer.write(buf)
+        else:
+            r += buf
+            p = r.find(b"\r\n\r\n")
+            if p >= 1:
+                sys.stdout.buffer.write(r[0:p+4])
+                return
+    if not "getall" in opts:
+        raise Exception("Unrecognized response")
+
+try:
+    opts = {}
+    i = 1
+    dry_run = True
+    while i < len(sys.argv):
+        if sys.argv[i][0] == "-":
+            opt = sys.argv[i]
+            i += 1
+            if opt in ("-a", "--getall"):
+                opts["getall"] = True
+                continue
+            elif opt in ("-p", "--printrequest"):
+                opts["printrequest"] = True
+                continue
+            elif opt in ("-u", "-r"):
+                if i >= len(sys.argv):
+                    raise Exception("Option '"+opt+"' needs an argument")
+                if opt == "-u":
+                    opts["useragent"] = sys.argv[i]
+                elif opt == "-r":
+                    opts["ref"] = sys.argv[i]
+            else:
+                raise Exception("Unknown option: '"+opt+"'")
+        else:
+            dry_run = False
+            fetch(sys.argv[i], opts)
+        i += 1
+    if dry_run:
+        print_help()
+except Exception as e:
+    sys.stderr.write(str(e)+"\n")

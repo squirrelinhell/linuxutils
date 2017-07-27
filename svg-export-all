@@ -1,0 +1,28 @@
+#!/bin/bash
+
+INFO="
+Export all objects from an SVG file as PNG images.
+
+Usage:
+    svg-export-all <file.svg>
+"
+
+if ! [ -f "$1" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+OBJECTS=$(inkscape -z --query-all "$1") || exit 1
+OBJECTS=$(echo "$OBJECTS" | sort) || exit 1
+
+while read l; do
+    ID=$(echo "$l" | cut -d ',' -f 1)
+    echo -n "Exporting '$ID.png'... "
+    if ! inkscape -z "$1" -i "$ID" -j \
+            -C --export-dpi=300 --export-png="$ID.png" \
+            >/dev/null 2>&1; then
+        echo "failed!"
+        exit 1
+    fi
+    echo "done"
+done <<< "$OBJECTS"

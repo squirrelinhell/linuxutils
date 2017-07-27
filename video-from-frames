@@ -1,0 +1,194 @@
+#!/bin/bash
+
+INFO="
+Encode video:
+    video-from-frames <directory> <fps> <output-file>
+
+Play preview:
+    video-from-frames <directory> <fps>
+"
+
+if [ "x$1" = x -o ! -d "$1" -o "x$2" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+INPDIR=$(readlink -f "$1") || exit 1
+FPS="$2"
+OUTFILE="$3"
+
+if [ "x$OUTFILE" != x ]; then
+    OUTFILE=$(readlink -f "$OUTFILE") || exit 1
+    if [ -e "$OUTFILE" ]; then
+        echo "File '$OUTFILE' already exists!" 1>&2
+        exit 1
+    fi
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+cd "$TMPDIR"
+export LC_COLLATE=C
+
+AUDIO_CHANNELS=
+AUDIO_RATE=
+V_SIZE=
+
+mkdir frames
+FRAMES=0
+PRINTED_DIR=
+print_dir() {
+    if [ "x$PRINTED_DIR" != "x$1" ]; then
+        [ x = "x$1" ] || echo "[+$2] Directory '$1'"
+        PRINTED_DIR="$1"
+    fi
+}
+print_info() {
+    print_dir "$1" "$2"
+    shift
+    echo -n "[+$1] "
+    shift
+    echo "$@"
+}
+print_warn() {
+    print_dir "$1" "$2"
+    shift
+    echo -n "[+$1] Warning: " 1>&2
+    shift
+    echo "$@" 1>&2
+}
+trim_audio() {
+    local time=$(bc <<<"scale=8; $FRAMES / $FPS") || return 1
+    local opts="-r 8000 -c 1 -n"
+    if [ "x$AUDIO_CHANNELS" != x ]; then
+        opts="-r $AUDIO_RATE -c $AUDIO_CHANNELS -n"
+    fi
+    [ ! -e audio.wav ] || opts="audio.wav $opts"
+    sox $opts trimmed.wav trim 0 "$time" || return 1
+    mv -f trimmed.wav audio.wav || return 1
+}
+IGNORED_AUDIO=
+find -L "$INPDIR" -type d | sort > dirs || exit 1
+while read d; do
+    ls "$d" | sort > files
+    DIR_XMP=
+    DIR_XMP_HASH=
+    while read f; do
+        case "$f" in
+            *.xmp)
+                if [ "x$DIR_XMP" != x ]; then
+                    print_warn "$d" "$FRAMES" \
+                        "xmp file '$DIR_XMP' overwritten by '$f'"
+                fi
+                DIR_XMP="$f"
+                DIR_XMP_HASH=$(cat "$d/$f" | sha256sum - | cut -c 1-8) || exit 1
+                print_info "$d" "$FRAMES" \
+                    "Xmp file '$f' (#$DIR_XMP_HASH)"
+            ;;
+            *.wav)
+                if [ "x$AUDIO_CHANNELS" = x ]; then
+                    AUDIO_CHANNELS=$(sox --i -c "$d/$f") || exit 1
+                    AUDIO_RATE=$(sox --i -r "$d/$f") || exit 1
+                    print_info "$d" "$FRAMES" "Setting audio rate" \
+                        "to $AUDIO_RATE (channels: $AUDIO_CHANNELS)"
+                fi
+                if [ "x$IGNORED_AUDIO" != x ]; then
+                    print_warn "$d" "$FRAMES" \
+                        "audio '$IGNORED_AUDIO' overwritten by '$f'"
+                fi
+                print_info "$d" "$FRAMES" \
+                    "Audio '$f'"
+                if [ "$FRAMES" -gt 0 ]; then
+                    trim_audio || exit 1
+                    sox audio.wav "$d/$f" newaudio.wav || exit 1
+                    mv -f newaudio.wav audio.wav
+                else
+                    cp "$d/$f" audio.wav || exit 1
+                fi
+                IGNORED_AUDIO="$f"
+            ;;
+        esac
+    done < files
+    while read f; do
+        case "$f" in
+            *.png)
+                print_dir "$d" "$FRAMES"
+                if [ "$FRAMES" = 0 ]; then
+                    V_SIZE=$(identify -format "%[fx:w]x%[fx:h]" "$d/$f") || exit 1
+                    print_info "$d" "$FRAMES" "Setting video size to $V_SIZE"
+                fi
+                IGNORED_AUDIO=
+                let FRAMES=$FRAMES+1
+                FNAME="frames/$(printf '%08d' $FRAMES).png"
+                PROC_DIR="$d/tmp-$DIR_XMP_HASH"
+                if [ "x$DIR_XMP" = x ]; then
+                    ln -s "$d/$f" "$FNAME" || exit 1
+                elif [ -f "$PROC_DIR/$f.tmp" ]; then
+                    ln -s "$PROC_DIR/$f.tmp" "$FNAME" || exit 1
+                else
+                    print_info "$d" "$(($FRAMES - 1))" \
+                        "Processing '$f' using " \
+                        "darktable-cli (#$DIR_XMP_HASH)"
+                    darktable-cli "$d/$f" "$d/$DIR_XMP" "proc.ppm" \
+                        >/dev/null 2>&1 || true
+                    if [ -e "proc.ppm" ]; then
+                        convert "proc.ppm" -thumbnail "$V_SIZE^" \
+                            -gravity center -extent "$V_SIZE" "proc.png" || exit 1
+                        rm -f "proc.ppm"
+                        mkdir -p "$PROC_DIR"
+                        mv "proc.png" "$PROC_DIR/$f.tmp" || exit 1
+                        ln -s "$PROC_DIR/$f.tmp" "$FNAME" || exit 1
+                    else
+                        print_warn "$d" "$(($FRAMES - 1))" \
+                            "darktable-cli failed"
+                        ln -s "$d/$f" "$FNAME" || exit 1
+                    fi
+                fi
+            ;;
+        esac
+    done < files
+done < dirs || exit 1
+
+if [ "$FRAMES" = 0 ]; then
+    echo "Error: no frames found!" 1>&2
+    exit 1
+fi
+
+trim_audio || exit 1
+print_info "" "$FRAMES" "Processing finished."
+
+echo "Adjusting volume..."
+
+if ! sox audio.wav -n stat -v </dev/null >audio_stats 2>&1; then
+    echo "Error: could not run sox!" 1>&2
+    exit 1
+fi
+
+if VOL=$(grep '^[0-9]' < audio_stats); then
+    if ! sox -Dv "$VOL" audio.wav audio-vol.wav </dev/null >/dev/null 2>&1; then
+        echo "Error: could not run sox!" 1>&2
+        exit 1
+    fi
+else
+    ln -s audio.wav audio-vol.wav || exit 1
+    echo "Warning: skipped audio volume adjustment" 1>&2
+fi
+
+if [ "x$OUTFILE" = x ]; then
+    mplayer -cache 100000 -cache-min 80 \
+        -autosync 30 -fs -audiofile audio-vol.wav \
+        mf://frames/*.png -mf fps="$FPS" || exit 1
+    exit 0
+fi
+
+echo "Encoding with ffmpeg..."
+
+ffmpeg -y -hide_banner -loglevel info \
+    -i audio-vol.wav \
+    -f image2 -start_number 1 -framerate "$FPS" -i 'frames/%08d.png' \
+    -vf "scale=$V_SIZE" \
+    -codec:v libx264 -preset slow -crf 21 \
+    -codec:a libmp3lame -q:a 3 \
+    "$OUTFILE" || exit 1
+
+exit 0

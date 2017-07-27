@@ -1,0 +1,23 @@
+#!/bin/bash
+
+INFO="
+Ping each of the specified IP addresses once.
+
+Usage:
+    pingall <ip1> [ <ip2> ... ]
+"
+
+if [ "x$1" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+while [ "x$1" != x ]; do
+    echo -n "$1"$'\t'
+    if ping -c 1 -w 1 "$1" >/dev/null 2>&1; then
+        echo up
+    else
+        echo down
+    fi
+    shift
+done

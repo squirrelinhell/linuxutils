@@ -1,0 +1,85 @@
+#!/bin/bash
+
+INFO="
+Recursively convert files to another file format,
+while writing only to another directory.
+
+Usage:
+    batch-convert <file or directory> <target extension> [ <command> ]
+"
+
+SOURCE="$1"
+shift
+EXTENSION="$1"
+shift
+
+if [ "x$SOURCE" = x -o "x$EXTENSION" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+find_name() {
+    if [ ! -e "$1$2" ]; then
+        echo "$1$2"
+        return 0
+    fi
+    if [ ! -e "$1-$EXTENSION$2" ]; then
+        echo "$1-$EXTENSION$2"
+        return 0
+    fi
+    local n=2
+    while [ -e "$1-$EXTENSION$n$2" ]; do
+        let n=$n+1
+    done
+    echo "$1-$EXTENSION$n$2"
+    return 0
+}
+
+do_convert() {
+    local source="$1"
+    shift
+    local target="$1"
+    shift
+    local fail=0
+    if [ "x$target" = x ]; then
+        fail=1
+    elif [ "x$1" = x ]; then
+        convert "$source" "$target" || fail=1
+    else
+        $@ "$source" "$target" || fail=1
+    fi
+    if [ $fail = 0 ]; then
+        return 0
+    fi
+    echo "Error: could not convert '$source'" 1>&2
+    return 1
+}
+
+strip_extension() {
+    sed -r -e 's/\.([a-zA-Z0-9]{2,5})$//' <<< "$1" || return 1
+    return 0
+}
+
+if [ -f "$SOURCE" ]; then
+    BASENAME=$(strip_extension "$SOURCE") || exit 1
+    NEW_NAME=$(find_name "$BASENAME" ".$EXTENSION") || exit 1
+    do_convert "$SOURCE" "$NEW_NAME" $@ || exit 1
+    exit 0
+fi
+
+if [ -d "$SOURCE" ]; then
+    NEW_DIR=$(find_name "$SOURCE" "") || exit 1
+    mkdir "$NEW_DIR" || exit 1
+    FILES=$(cd "$SOURCE" && find . -type f -printf "%P\n") || exit 1
+    FAIL=0
+    while IFS= read -r f; do
+        BASENAME=$(strip_extension "$NEW_DIR/$f") || exit 1
+        NEW_NAME=$(find_name "$BASENAME" ".$EXTENSION") || exit 1
+        mkdir -p "${NEW_NAME%/*}" || exit 1
+        do_convert "$SOURCE/$f" "$NEW_NAME" $@ </dev/null || FAIL=1
+    done <<< "$FILES"
+    exit "$FAIL"
+fi
+
+echo "Error: could not open '$SOURCE'" 1>&2
+exit 1

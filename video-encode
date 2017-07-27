@@ -1,0 +1,44 @@
+#!/bin/bash
+
+INFO="
+Encode high quality videos using ffmpeg and the x264 codec.
+
+Usage:
+    video-encode [ <ffmpeg options> ] <output file>
+"
+
+if [ "x$1" = x -o "x$2" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+OUTFILE=$(readlink -f "${!#}") || exit 1
+
+if [ -e "$OUTFILE" ]; then
+    echo "File '$OUTFILE' already exists!" 1>&2
+    exit 1
+fi
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+echo "Extracting audio..."
+
+ffmpeg -y -nostats -loglevel error \
+    "${@:1:${#}-1}" \
+    -vn "$TMPDIR/audio.wav" || exit 1
+
+echo "Adjusting volume..."
+
+VOL=$(sox "$TMPDIR/audio.wav" -n stat -v </dev/null 2>&1 >/dev/null | grep '^[0-9]') || exit 1
+sox -Dv "$VOL" "$TMPDIR/audio.wav" "$TMPDIR/normalized.wav" </dev/null >/dev/null 2>&1 || exit 1
+
+echo "Encoding with ffmpeg..."
+
+ffmpeg -y -hide_banner -loglevel info \
+    -i "$TMPDIR/normalized.wav" \
+    "${@:1:${#}-1}" \
+    -map 0:a -map 1:v \
+    -codec:v libx264 -preset slow -crf 25 \
+    -codec:a libmp3lame -q:a 5 \
+    "$OUTFILE" || exit 1

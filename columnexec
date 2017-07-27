@@ -1,0 +1,95 @@
+#!/bin/bash
+
+INFO="
+Process a file with tab-separated columns.
+
+Usage:
+    columnexec [options] <column1> <column2> <command>
+
+Values in the second column of each row are replaced with
+results of running <command> with the value in the first column
+appended to the list of arguments.
+
+Options:
+    --onlynew       Only replace if second column is empty
+    --nodelete      Only replace if command output is not empty
+"
+
+ONLYNEW=n
+if [ "x$1" = "x--onlynew" ]; then
+    ONLYNEW=y
+    shift
+fi
+
+NODELETE=n
+if [ "x$1" = "x--nodelete" ]; then
+    NODELETE=y
+    shift
+fi
+
+COLA="$1"
+shift
+COLB="$1"
+shift
+
+if [ "x$COLA" = "x" -o "x$COLB" = "x" -o "x$1" = "x" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+NUM=0
+while IFS= read -r line; do
+    NUM=$(($NUM + 1))
+    FIELDS="${line//[^	]/}x"
+    FIELDS="${#FIELDS}"
+    if [ "$COLA" -gt "$FIELDS" ]; then
+        echo "Error: column $COLA does not exist (line $NUM)" 1>&2
+        exit 1
+    fi
+    if [ "$COLB" -gt "$FIELDS" ]; then
+        echo "Error: column $COLB does not exist (line $NUM)" 1>&2
+        exit 1
+    fi
+
+    A=$(cut -f "$COLA" <<< "$line") || exit 1
+    B=$(cut -f "$COLB" <<< "$line") || exit 1
+
+    read  -rd '' A <<< "$A"
+    read  -rd '' B <<< "$B"
+
+    if [ "$ONLYNEW" = "y" -a "x$B" != "x" ]; then
+        echo "$line"
+        continue
+    fi
+
+    if [ "x$A" != x ]; then
+        B2=$("$@" "$A" </dev/null) || B2=
+        B2=$(echo "$B2" | tr $'\r\n\t' '   ')
+        read  -rd '' B2 <<< "$B2"
+    else
+        B2=
+    fi
+
+    if [ "x$B" = "x$B2" ]; then
+        echo "$line"
+        continue
+    fi
+    if [ "x$B2" = x -a "$NODELETE" = y ]; then
+        echo "$line"
+        continue
+    fi
+
+    echo "'$A' -> '$B2'" 1>&2
+
+    if [ "$COLB" -gt 1 ]; then
+        P1=$(cut -f 1-$(($COLB - 1)) <<< "$line") || exit 1
+        echo -n "$P1"$'\t'
+    fi
+    echo -n "$B2"
+    if [ "$COLB" -lt "$FIELDS" ]; then
+        P2=$(cut -f $(($COLB + 1))- <<< "$line") || exit 1
+        echo -n $'\t'"$P2"
+    fi
+    echo
+done
+exit 0
