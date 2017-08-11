@@ -1,0 +1,26 @@
+#!/bin/bash
+
+INFO="
+Show the number of non-empty lines that are lost
+in each next version of a file.
+
+Usage:
+    lines-lost <file1> <file2> [ ... <file3> ... ]
+"
+
+if [ "x$1" = x -o "x$2" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+LAST="$1"
+shift
+
+while [ "x$1" != x ]; do
+    DEL=$(diff \
+        --new-line-format="" --unchanged-line-format="" \
+        "$LAST" "$1" | grep -v '^\s*$' | wc -l)
+    echo "'$LAST' -> '$1':"$'\t'"$DEL"
+    LAST="$1"
+    shift
+done

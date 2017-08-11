@@ -35,28 +35,29 @@ function download_file() {
         echo "Warning: could not download '$url'" 1>&2
         return 1
     fi
-    local dim=$(cd "$TMPDIR" && identify -format "%wx%h" "$id" 2>/dev/null)
-    if [ "x$dim" = x ]; then
+    if ! (cd "$TMPDIR" && memlimit 102400 convert "$id" -strip "$id.ppm" 2>/dev/null); then
         echo "Warning: could not parse '$url'" 1>&2
-        rm "$TMPDIR/$id" || true
+        rm "$TMPDIR/$id" "$TMPDIR/$id.ppm" 2>/dev/null || true
         return 1
     fi
-    if ! [ "${dim%%x*}" -ge 1400 -a "${dim##*x}" -ge 900 ] ; then
-        echo "Skipped: '$url' (${dim}px)" 1>&2
-        rm "$TMPDIR/$id" || true
-        return 1
-    fi
-    local name=$(cd "$TMPDIR" && image-hash --ext "$id") || return 1
-    local hash="${name%%.*}"
-    touch .done || return 1
-    if [ -e "$name" ] || grep -q -F "$hash" .done; then
-        echo "Skipped: '$hash' == '$url'" 1>&2
-        rm "$TMPDIR/$id" || true
-        return 1
-    fi
-    cp "$TMPDIR/$id" "$name" || return 1
-    echo "$hash" >> .done || true
     rm "$TMPDIR/$id" || true
+    local wh=$(head -n 2 "$TMPDIR/$id.ppm" | tail -n 1) || return 1
+    read w h <<<"$wh" || return 1
+    if ! [ "$w" -ge 1400 -a "$h" -ge 900 ] ; then
+        echo "Skipped: '$url' (${w}x${h}px)" 1>&2
+        rm "$TMPDIR/$id.ppm" || true
+        return 1
+    fi
+    local hash=$(cd "$TMPDIR" && image-hash "$id.ppm") || return 1
+    touch .done || return 1
+    if [ -e "$hash.jpg" ] || grep -q -F "$hash" .done; then
+        echo "Skipped: '$hash' == '$url'" 1>&2
+        rm "$TMPDIR/$id.ppm" || true
+        return 1
+    fi
+    convert "$TMPDIR/$id.ppm" -quality 95 "$hash.jpg" || return 1
+    echo "$hash" >> .done || true
+    rm "$TMPDIR/$id.ppm" || true
 }
 
 function google_query() {
