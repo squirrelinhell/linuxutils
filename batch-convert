@@ -44,7 +44,7 @@ do_convert() {
     if [ "x$target" = x ]; then
         fail=1
     elif [ "x$1" = x ]; then
-        convert "$source" "$target" || fail=1
+        convert "$source" -strip "$target" || fail=1
     else
         $@ "$source" "$target" || fail=1
     fi

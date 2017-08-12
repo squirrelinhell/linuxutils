@@ -33,6 +33,7 @@ function download_file() {
     local url="$2"
     if ! (cd "$TMPDIR" && timeout 60 wget -q --user-agent="$USER_AGENT" "$url" -O "$id"); then
         echo "Warning: could not download '$url'" 1>&2
+        rm "$TMPDIR/$id" 2>/dev/null || true
         return 1
     fi
     if ! (cd "$TMPDIR" && memlimit 102400 convert "$id" -strip "$id.ppm" 2>/dev/null); then
@@ -51,7 +52,7 @@ function download_file() {
     local hash=$(cd "$TMPDIR" && image-hash "$id.ppm") || return 1
     touch .done || return 1
     if [ -e "$hash.jpg" ] || grep -q -F "$hash" .done; then
-        echo "Skipped: '$hash' == '$url'" 1>&2
+        echo "Skipped: '$url' == '$hash'" 1>&2
         rm "$TMPDIR/$id.ppm" || true
         return 1
     fi
@@ -99,9 +100,12 @@ if [ "x$1" = "x--stdin" ]; then
     shift
     QID=1
     while read line; do
-        wait_new_job
-        google_query "$QID" "$@" "$line"
-        let QID=QID+1
+        line=$(echo $line)
+        if [ "x$line" != x ]; then
+            wait_new_job
+            google_query "$QID" "$@" "$line"
+            let QID=QID+1
+        fi
     done
 else
     google_query 1 "$@"

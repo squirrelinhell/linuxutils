@@ -80,7 +80,7 @@ if [ -e "$OUTFILE" ]; then
 fi
 
 convert "$INFILE" \
-    -auto-orient \
+    -auto-orient -strip \
     -resize "$RESIZE>" \
     -background white -flatten \
     "$TMPDIR/1.ppm" || exit 1

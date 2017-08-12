@@ -1,0 +1,42 @@
+#!/bin/bash
+
+INFO="
+Run a command repeatedly in a daemonized process.
+
+Usage:
+    repeatd [ <command> ]
+    repeatd --interval <seconds> [ <command> ]
+"
+
+INTERVAL=60
+if [ "x$1" = x--interval ]; then
+    shift
+    INTERVAL="$1"
+    shift
+fi
+
+if [ "x$1" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+LOG_FILE="/tmp/repeatd-$$.log"
+
+if [ "x$1" = x--nobg ]; then
+    shift
+    trap "" HUP PIPE TERM
+    trap "kill 0; mv -f $LOG_FILE $LOG_FILE.old; exit 0" EXIT
+    while : ; do
+        "$@" >> "$LOG_FILE" || true
+        sleep "$INTERVAL"
+    done
+    exit 1
+fi
+
+SELF_PATH=$(readlink -m "${BASH_SOURCE[0]}") || exit 1
+
+exec setsid setsid "$SELF_PATH" \
+    --interval "$INTERVAL" --nobg "$@" \
+    </dev/null >/dev/null 2>&1
+
+exit 1
