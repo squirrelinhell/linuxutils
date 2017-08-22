@@ -1,0 +1,60 @@
+#!/bin/bash
+
+INFO="
+Print time since the last 5 minute break.
+
+Usage:
+    worktime --print
+    worktime --reset
+"
+
+STATUS_FILE="/tmp/worktime.$UID.status"
+
+function not_synced_print {
+    local cur_time="$1"
+    local last_activity="$2"
+
+    if [ ! -e "$STATUS_FILE" ]; then
+        echo "$last_activity:$last_activity" \
+            > "$STATUS_FILE" || return 1
+    fi
+
+    IFS=':' read work_start work_end \
+        < "$STATUS_FILE" || return 1
+
+    local extend_work=$(($last_activity - $work_end))
+    if [ "$extend_work" -ge 300 ]; then
+        work_start=$last_activity
+    fi
+    if [ "$extend_work" -ge 11 ]; then
+        work_end=$last_activity
+    fi
+
+    echo "$work_start:$work_end" \
+        > "$STATUS_FILE" || return 1
+
+    local work_sec=$(($work_end - $work_start))
+    local work_min=$(($(($work_sec + 30)) / 60))
+    echo "${work_min}m"
+}
+
+function run_sync {
+    ( flock -x 9 && "$@" ) 9> "$STATUS_FILE.lock"
+    return $?
+}
+
+if [ "x$1" = x--reset ]; then
+    run_sync rm "$STATUS_FILE" || exit 1
+    exit 0
+fi
+
+if [ "x$1" = x--print ]; then
+    CUR_TIME=$(date +'%s') || exit 1
+    CUR_IDLE=$(xinfo i) || exit 1
+    LAST_ACT=$(($CUR_TIME - $CUR_IDLE))
+    run_sync not_synced_print "$CUR_TIME" "$LAST_ACT" || exit 1
+    exit 0
+fi
+
+echo "$INFO" 1>&2
+exit 1

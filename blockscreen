@@ -24,11 +24,12 @@ function unblock_all() {
     return 0
 }
 
+play -q -n synth 0.2 sin C6 sin G5 delay 0.0 0.2 &
+
 trap "" HUP
 trap unblock_all EXIT
 block_all || exit 1
 
-xset dpms force off || true
 sleep $SLEEP || true
 
 unblock_all || exit 1

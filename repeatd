@@ -24,7 +24,7 @@ LOG_FILE="/tmp/repeatd-$$.log"
 
 if [ "x$1" = x--nobg ]; then
     shift
-    trap "" HUP PIPE TERM
+    trap "" HUP PIPE
     trap "kill 0; mv -f $LOG_FILE $LOG_FILE.old; exit 0" EXIT
     while : ; do
         "$@" >> "$LOG_FILE" || true

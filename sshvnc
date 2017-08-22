@@ -13,29 +13,33 @@ if [ "x$1" = x ]; then
     exit 1
 fi
 
+SIZE=$(xinfo r) || exit 1
+SIZE=$((${SIZE%% *}-50))x$((${SIZE##* }-100)) || exit 1
+
 TMPDIR=$(mktemp -d) || exit 1
 trap "rm -rf $TMPDIR" EXIT
 
-RESOLUTION=$(xinfo r) || exit 1
-touch "$TMPDIR/out" || exit 1
+ECHO_PASSWD="echo -n $'\x49\x40\x15\xf9\xa3\x5e\x8b\x22'"
+bash -c "$ECHO_PASSWD" > "$TMPDIR/passwd"
 
-CREATE_PASSWD_FILE='[ -f .vnc/passwd ] || ( echo -n '\
-'$'"'"'\x49\x40\x15\xf9\xa3\x5e\x8b\x22'"'"' > '\
-'.vnc/passwd && chmod 0600 .vnc/passwd )'
+REMOTE_CMD="
+cd || exit 1
+mkdir -p .vnc || exit 1
+$ECHO_PASSWD > .vnc/passwd || exit 1
+chmod 0600 .vnc/passwd || exit 1
+vncserver -list | grep '^:' | cut -f 1 | xargs -n1 vncserver -kill
+echo Starting VNC server on remote host...
+vncserver -geometry '$SIZE' -depth 24 \
+    -alwaysshared -dpi 96 -localhost :1 || exit 1
+echo Started
+sleep 3600
+"
 
-RUN_SERVER='vncserver -geometry '"$RESOLUTION"' -depth 24 '\
-'-alwaysshared -dpi 96 -localhost :1 >/dev/null 2>&1 &'
-
-( \
-    echo 'cd || exit 1'; \
-    echo 'mkdir -p .vnc || exit 1'; \
-    echo "$CREATE_PASSWD_FILE || exit 1"; \
-    echo "$RUN_SERVER"; \
-    echo 'test -f .vnc/passwd && cat .vnc/passwd'; \
-    while test $(stat -c%s "$TMPDIR/out") = 0; do sleep 1; done; \
-    echo "Connecting..." 1>&2; \
-    vncviewer 127.0.0.1:6900 -passwd "$TMPDIR/out" 1>&2 \
-) | ssh "$@" -L 6900:localhost:5901 > "$TMPDIR/out"
-ret=$?
-
-exit $ret
+ssh "$@" -L 6900:localhost:5901 "$REMOTE_CMD" 2>&1 | while read line; do
+    if [ "x$line" = xStarted ]; then
+        vncviewer 127.0.0.1:6900 -passwd "$TMPDIR/passwd"
+        exit 0
+    elif [ "x$line" != x ]; then
+        echo "$line"
+    fi
+done
