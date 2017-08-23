@@ -30,7 +30,7 @@ chmod 0600 .vnc/passwd || exit 1
 vncserver -list | grep '^:' | cut -f 1 | xargs -n1 vncserver -kill
 echo Starting VNC server on remote host...
 vncserver -geometry '$SIZE' -depth 24 \
-    -alwaysshared -dpi 96 -localhost :1 || exit 1
+    -alwaysshared -dpi 96 -localhost :1 </dev/null || exit 1
 echo Started
 sleep 3600
 "

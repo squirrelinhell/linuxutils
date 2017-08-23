@@ -15,23 +15,26 @@ function not_synced_print {
     local last_activity="$2"
 
     if [ ! -e "$STATUS_FILE" ]; then
-        echo "$last_activity:$last_activity" \
-            > "$STATUS_FILE" || return 1
+        echo "0:0" > "$STATUS_FILE" || return 1
     fi
 
-    IFS=':' read work_start work_end \
-        < "$STATUS_FILE" || return 1
+    IFS=':' read work_start work_end < "$STATUS_FILE" || return 1
 
     local extend_work=$(($last_activity - $work_end))
     if [ "$extend_work" -ge 300 ]; then
         work_start=$last_activity
     fi
-    if [ "$extend_work" -ge 11 ]; then
+    if [ "$extend_work" -ge 5 ]; then
         work_end=$last_activity
     fi
 
-    echo "$work_start:$work_end" \
-        > "$STATUS_FILE" || return 1
+    local since_end=$(($cur_time - $work_end))
+    if [ "$since_end" -ge 300 ]; then
+        work_start=$last_activity
+        work_end=$last_activity
+    fi
+
+    echo "$work_start:$work_end" > "$STATUS_FILE" || return 1
 
     local work_sec=$(($work_end - $work_start))
     local work_min=$(($(($work_sec + 30)) / 60))
