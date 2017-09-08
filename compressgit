@@ -1,0 +1,26 @@
+#!/bin/bash
+
+INFO="
+Compress a git repository into a .tgz archive
+and remove the source (only if successful).
+
+Warning: this removes all files that are not
+tracked by git.
+
+Usage:
+    compressgit <git repository> [ <output.tgz> ]
+"
+
+SRCDIR="${1%%/}"
+shift
+
+if [ ! -d "$SRCDIR/.git" ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+(cd "$SRCDIR" \
+    && git gc --prune=now --aggressive \
+    && git clean -f -x -d) || exit 1
+
+exec compressfolder --keep-dir "$SRCDIR" "$@"

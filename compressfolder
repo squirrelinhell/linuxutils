@@ -6,9 +6,17 @@ and remove the source (only if successful).
 
 Usage:
     compressfolder <folder> [ <output.tgz> ]
+    compressfolder --keep-dir <folder> [ <output.tgz> ]
 "
 
-SRCDIR="${1%%/}"
+KEEP_DIR=
+
+if [ "x$1" == x--keep-dir ]; then
+    KEEP_DIR=1
+    shift
+fi
+
+SRCDIR=$(readlink -m "$1")
 OUTFILE="$2"
 
 if [ "x$SRCDIR" = x -o ! -d "$SRCDIR" ]; then
@@ -48,12 +56,18 @@ LC_ALL=C sort < "$TMPDIR/all" > "$TMPDIR/all_sort" || exit 1
 
 tac "$TMPDIR/dirs_sort" > "$TMPDIR/dirs_rev" || exit 1
 
+TAR_OPTIONS=()
+if [ "x$KEEP_DIR" = x1 ]; then
+    TAR_OPTIONS=("--transform=s/^/${SRCDIR##*/}\//")
+fi
+
 LINES=$(wc -l < "$TMPDIR/all_sort") || exit 1
 if [ "$LINES" -ge 1 ]; then
     # Create archive
     tar --no-recursion -c \
         --directory="$SRCDIR" \
         --files-from="$TMPDIR/all_sort" \
+        "${TAR_OPTIONS[@]}" \
         | "$GZIP_PROG" --best > "$OUTFILE"
     if [ "x${PIPESTATUS[0]}${PIPESTATUS[1]}" = x00 ]; then
         # Both tar and gzip finished succcessfully,
