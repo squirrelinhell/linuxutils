@@ -4,7 +4,7 @@ INFO="
 Resize and crop images to exactly match the specified size.
 
 Usage:
-    thumbnail-crop WxH <input file or folder>
+    image-thumbnail WxH <input file or folder>
 "
 
 if [ "x$1" = x -o "x$2" = x ]; then
@@ -17,5 +17,9 @@ shift
 INPUT="$1"
 shift
 
-exec batch-convert "$INPUT" png convert -resize "$DIMS^" \
-    -gravity center -extent "$DIMS" "$@"
+exec batch-convert "$INPUT" png \
+    convert - \
+    -resize "$DIMS^" \
+    -gravity center \
+    -extent "$DIMS" \
+    "$@" png:-
