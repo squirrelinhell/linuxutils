@@ -3,10 +3,10 @@
 import sys
 import tkinter as tk
 
-if len(sys.argv) < 2:
-    sys.stderr.write("\nUsage:\n\n");
-    sys.stderr.write("\tblack-rectangle <WxH>\n\n")
-    sys.exit(1)
+def print_help():
+    sys.stdout.write("\n"
+        + "Display a black rectangle immune to the window manager.\n\n"
+        + "Usage:\n\tblack-rectangle <WxH>\n\n")
 
 class Rectangle:
     def __init__(self, master, size):
@@ -42,6 +42,15 @@ class Rectangle:
         self.pos = self.pos[0] + diff[0], self.pos[1] + diff[1]
         self.update_pos()
 
+def run():
+    if len(sys.argv) < 2:
+        print_help()
+    else:
+        app = Rectangle(tk.Tk(), sys.argv[1])
+        app.window.mainloop()
+
 if __name__ == "__main__":
-    app = Rectangle(tk.Tk(), sys.argv[1])
-    app.window.mainloop()
+    try:
+        run()
+    except Exception as e:
+        sys.stderr.write(str(e) + "\n")

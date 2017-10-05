@@ -4,12 +4,12 @@ import sys, socket
 
 def print_help():
     sys.stdout.write("\n"
-        +"Check HTTP headers of a website.\n\n"
-        +"Usage: headers [ -a | --getall ]\n"
-        +"               [ -p | --printrequest ]\n"
-        +"               [ -u <user agent string> ]\n"
-        +"               [ -r <referrer string> ]\n"
-        +"               http://somesite\n\n")
+        + "Check HTTP headers of a website.\n\n"
+        + "Usage: headers [ -a | --getall ]\n"
+        + "               [ -p | --printrequest ]\n"
+        + "               [ -u <user agent string> ]\n"
+        + "               [ -r <referrer string> ]\n"
+        + "               http://somesite\n\n")
 
 def fetch(url, opts):
     if url.startswith("http://"):
@@ -54,7 +54,7 @@ def fetch(url, opts):
     if not "getall" in opts:
         raise Exception("Unrecognized response")
 
-try:
+def run():
     opts = {}
     i = 1
     dry_run = True
@@ -83,5 +83,9 @@ try:
         i += 1
     if dry_run:
         print_help()
-except Exception as e:
-    sys.stderr.write(str(e)+"\n")
+
+if __name__ == "__main__":
+    try:
+        run()
+    except Exception as e:
+        sys.stderr.write(str(e) + "\n")
