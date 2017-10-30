@@ -31,12 +31,21 @@ function wait_new_job() {
 function download_file() {
     local id="$1"
     local url="$2"
-    if ! (cd "$TMPDIR" && timeout 60 wget -q --user-agent="$USER_AGENT" "$url" -O "$id"); then
+    if ! (cd "$TMPDIR" && \
+            timeout 60 \
+            wget -q \
+                --user-agent="$USER_AGENT" \
+                --referer="$url" \
+                "$url" -O "$id"); then
         echo "Warning: could not download '$url'" 1>&2
         rm "$TMPDIR/$id" 2>/dev/null || true
         return 1
     fi
-    if ! (cd "$TMPDIR" && memlimit 102400 convert "$id" -strip "$id.ppm" 2>/dev/null); then
+    if ! (cd "$TMPDIR" && \
+            memlimit 102400 \
+            convert "$id" \
+                -strip \
+                "$id.ppm" 2>/dev/null); then
         echo "Warning: could not parse '$url'" 1>&2
         rm "$TMPDIR/$id" "$TMPDIR/$id.ppm" 2>/dev/null || true
         return 1
@@ -51,13 +60,18 @@ function download_file() {
     fi
     local hash=$(cd "$TMPDIR" && image-hash "$id.ppm") || return 1
     touch .done || return 1
-    if [ -e "$hash.jpg" ] || grep -q -F "$hash" .done; then
+    if [ -e "$hash.jpg" ] || grep -q "^$hash" .done; then
         echo "Skipped: '$url' == '$hash'" 1>&2
+        if ! grep -F "$hash $url" .done; then
+            echo "$hash $url" >> .done || true
+        fi
         rm "$TMPDIR/$id.ppm" || true
         return 1
     fi
     convert "$TMPDIR/$id.ppm" -quality 95 "$hash.jpg" || return 1
-    echo "$hash" >> .done || true
+    if ! grep -F "$hash $url" .done; then
+        echo "$hash $url" >> .done || true
+    fi
     rm "$TMPDIR/$id.ppm" || true
 }
 

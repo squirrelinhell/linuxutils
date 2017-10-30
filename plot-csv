@@ -37,6 +37,10 @@ def plot_csv(*csv_files):
         for col, ax in zip(cols[1:], axes):
             _add_plot(ax, data[cols[0]], data[col], color)
 
+    for ax in axes:
+        ylim = ax.get_ylim()
+        ax.set_ylim([min(0.0, ylim[0]), max(0.0, ylim[1])])
+
     labels = list(map(os.path.basename, csv_files))
     if len(set(labels)) < len(csv_files):
         labels = ["/".join(n.split("/")[-2:]) for n in csv_files]
@@ -54,11 +58,14 @@ def _running_mean(data, window):
 
 def _add_plot(ax, x, y, color):
     xy = np.vstack((x, y)).T
-    ax.plot(xy[:,0], xy[:,1], color + ".", alpha=0.2, zorder=10)
+    if len(xy) <= 1:
+        ax.plot(xy[:,0], xy[:,1], color + ".", zorder=13)
+        return
     if len(xy) >= 200:
+        ax.plot(xy[:,0], xy[:,1], color + ".", alpha=0.2, zorder=10)
         xy = _running_mean(xy, 100)
-        ax.plot(xy[:,0], xy[:,1], "w-", linewidth=4, zorder=11)
-        ax.plot(xy[:,0], xy[:,1], color + "-", linewidth=2, zorder=12)
+    ax.plot(xy[:,0], xy[:,1], "w-", linewidth=4, zorder=11)
+    ax.plot(xy[:,0], xy[:,1], color + "-", linewidth=2, zorder=12)
 
 def _getenv(name):
     if name in os.environ and len(os.environ[name]) >= 1:
