@@ -17,23 +17,25 @@ def plot_csv(*csv_files):
     if plot_file is not None:
         matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    import matplotlib.patches
     import matplotlib.cm
-    patches = []
 
     file_data = []
     for f in csv_files:
         try:
-            file_data.append(np.genfromtxt(f, names=True))
+            data = np.genfromtxt(f, names=True)
+            assert data.size >= 2
+            assert len(data.dtype.names) >= 1
+            file_data.append(data)
         except:
             sys.stderr.write("Warning: could not read '%s'" % f)
     assert len(file_data) >= 1
-    cols = list(file_data[0].dtype.names)
-    assert len(cols) >= 1
+    cols = [c for c in file_data[0].dtype.names
+        if not np.isnan(np.sum(file_data[0][c]))]
     if len(cols) < 2:
         cols = [""] + cols
 
     fig, axes = plt.subplots(nrows=len(cols)-1)
+    fig.tight_layout()
     if not hasattr(axes, "__iter__"):
         axes = [axes]
     axes[-1].set_xlabel(cols[0])
@@ -41,22 +43,20 @@ def plot_csv(*csv_files):
         ax.set_ylabel(col)
         ax.grid()
 
-    for file_name, data, color in zip(csv_files, file_data,
-            matplotlib.cm.jet(np.linspace(0, 1, len(file_data)))):
-        patches.append(matplotlib.patches.Patch(color=color))
-        assert data.size >= 2
+    labels = list(map(os.path.basename, csv_files))
+    if len(set(labels)) < len(csv_files):
+        labels = ["/".join(n.split("/")[-2:]) for n in csv_files]
+
+    for file_name, data, label in zip(csv_files, file_data, labels):
         xs = np.arange(len(data))+1 if cols[0] == "" else data[cols[0]]
         for col, ax in zip(cols[1:], axes):
-            _add_plot(ax, xs, data[col], color)
+            _add_plot(ax, xs, data[col], label)
 
     for ax in axes:
         ylim = ax.get_ylim()
         ax.set_ylim([min(0.0, ylim[0]), max(0.0, ylim[1])])
 
-    labels = list(map(os.path.basename, csv_files))
-    if len(set(labels)) < len(csv_files):
-        labels = ["/".join(n.split("/")[-2:]) for n in csv_files]
-    plt.figlegend(handles=patches, labels=labels, loc=3)
+    plt.legend(loc=3)
 
     if plot_file is None:
         plt.show()
@@ -68,13 +68,16 @@ def _running_mean(data, window):
     sums = np.cumsum(data, 0)
     return (sums[window:] - sums[:-window]) / window
 
-def _add_plot(ax, x, y, c):
-    xy = np.vstack((x, y)).T
+def _add_plot(ax, x, y, label):
+    xy = np.array(list(sorted(zip(x, y))))
+    color = None
     if len(xy) >= 200:
-        ax.plot(xy[:,0], xy[:,1], ".", color=c, alpha=0.2, zorder=10)
+        color = ax.plot(xy[:,0], xy[:,1], ".",
+            alpha=0.2, zorder=1)[0].get_color()
         xy = _running_mean(xy, 100)
-    ax.plot(xy[:,0], xy[:,1], "w-", linewidth=4, zorder=11)
-    ax.plot(xy[:,0], xy[:,1], "-", color=c, linewidth=2, zorder=12)
+    ax.plot(xy[:,0], xy[:,1], "w-", linewidth=4, zorder=2)
+    ax.plot(xy[:,0], xy[:,1], "-", label=label,
+        color=color, linewidth=2, zorder=3)
 
 def _getenv(name):
     if name in os.environ and len(os.environ[name]) >= 1:
