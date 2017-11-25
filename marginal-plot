@@ -32,12 +32,12 @@ def read_file(input_file):
 
     if data.dtype.fields == None:
         if len(data.shape) <= 1:
-            return {"$1": auto_type(data)}
+            return {"$1": auto_type(data)}, len(data)
         else:
             return {
                 "$" + str(i+1): auto_type(data[:,i])
                 for i in range(min(data.shape[-1], 10))
-            }
+            }, len(data[:,0])
     else:
         out = {}
         for i, name in enumerate(data.dtype.names):
@@ -45,7 +45,7 @@ def read_file(input_file):
             out[name] = value
             if i < 10:
                 out["$" + str(i+1)] = value
-        return out
+        return out, len(data[data.dtype.names[0]])
 
 def running_mean(data, window):
     sums = np.cumsum(data, 0)
@@ -53,19 +53,18 @@ def running_mean(data, window):
 
 def add_plot(ax, x, y, **kwargs):
     xy = np.array(list(sorted(zip(x, y))))
-    color = None
-    if len(xy) >= 50:
-        color = ax.plot(xy[:,0], xy[:,1], ".",
-            alpha=0.2, zorder=1)[0].get_color()
-        xy = running_mean(xy, len(xy) // 10)
-    ax.plot(xy[:,0], xy[:,1], "w-", linewidth=4, zorder=2)
-    ax.plot(xy[:,0], xy[:,1], "-", color=color,
-        linewidth=2, zorder=3, **kwargs)
+    color = ax.plot(xy[:,0], xy[:,1], ".",
+        markersize=10, alpha=0.2, zorder=1)[0].get_color()
+    if len(xy) >= 10:
+        xy = running_mean(xy, max(3, len(xy) // 10))
+        ax.plot(xy[:,0], xy[:,1], "w-", linewidth=4, zorder=2)
+        ax.plot(xy[:,0], xy[:,1], "-", color=color,
+            linewidth=2, zorder=3, **kwargs)
 
 def build_plot(input_file, *columns):
     import matplotlib.pyplot as plt
 
-    data = read_file(input_file)
+    data, data_len = read_file(input_file)
 
     columns = list(columns)
     if len(columns) < 1:
@@ -79,22 +78,33 @@ def build_plot(input_file, *columns):
         ]
 
     column_values = [
-        np.asarray(eval('lambda data: ' + v)(data))
+        np.asarray(eval('lambda data: (' + v + ')')(data))
+            .reshape(data_len)
         for v in column_values
     ]
 
     if len(columns) < 2:
         columns = [""] + columns
-        column_values = [np.arange(len(column_values[0]))] + column_values
+        column_values = [np.arange(data_len)] + column_values
 
     fig, ax = plt.subplots()
     ax.set_xlabel(columns[0])
+    ax.set_ylabel(columns[1])
     fig.tight_layout()
     ax.grid()
 
-    add_plot(ax, column_values[0], column_values[1], label=columns[1])
-
-    plt.legend(loc=3)
+    if len(columns) >= 3:
+        for v in sorted(set(column_values[2])):
+            pick = (column_values[2] == v)
+            add_plot(
+                ax,
+                column_values[0][pick],
+                column_values[1][pick],
+                label=str(v)
+            )
+        plt.legend(loc=3, title=columns[2])
+    else:
+        add_plot(ax, column_values[0], column_values[1])
 
 def run(*args):
     import os
