@@ -51,65 +51,101 @@ def running_mean(data, window):
     sums = np.cumsum(data, 0)
     return (sums[window:] - sums[:-window]) / window
 
-def add_plot(ax, x, y, **kwargs):
-    xy = np.array(list(sorted(zip(x, y))))
-    color = ax.plot(xy[:,0], xy[:,1], ".",
-        markersize=10, alpha=0.2, zorder=1)[0].get_color()
-    if len(xy) >= 10:
-        xy = running_mean(xy, max(3, len(xy) // 10))
+def add_plot(ax, xs, ys, **kwargs):
+    xy = np.array(list(sorted(zip(xs, ys))), dtype=np.float32)
+    if len(xy) >= 100:
+        color = ax.plot(xy[:,0], xy[:,1], ".", markersize=10,
+            alpha=0.5, zorder=1)[0].get_color()
+        xy = running_mean(xy, len(xy) // 10)
         ax.plot(xy[:,0], xy[:,1], "w-", linewidth=4, zorder=2)
         ax.plot(xy[:,0], xy[:,1], "-", color=color,
             linewidth=2, zorder=3, **kwargs)
+    elif len(xy) >= 1:
+        ax.plot(xy[:,0], xy[:,1], ".", markersize=10,
+            alpha=0.5, zorder=1, **kwargs)
 
 def build_plot(input_file, *columns):
     import matplotlib.pyplot as plt
 
     data, data_len = read_file(input_file)
+    if data_len < 1:
+        sys.stderr.write("Error: no data found\n")
+        sys.exit(1)
+    data["$0"] = np.arange(data_len)
 
     columns = list(columns)
     if len(columns) < 1:
         columns.append("$1")
+    if len(columns) < 2:
+        columns.append("$0")
 
-    column_values = columns
+    columns = [(c, c) for c in columns]
     for key in data:
-        column_values = [
-            v.replace(key, 'data["' + key + '"]')
-            for v in column_values
+        columns = [
+            (n, v.replace(key, 'data["' + key + '"]'))
+            for n, v in columns
         ]
 
-    for i in range(len(column_values)):
+    for i in range(len(columns)):
         try:
-            v = eval('lambda data: (' + column_values[i] + ')')(data)
+            v = eval('lambda data: (' + columns[i][1] + ')')(data)
         except:
             sys.stderr.write("Error: invalid column name: '%s'\n"
-                % column_values[i])
+                % columns[i][0])
             sys.exit(1)
 
-        column_values[i] = np.broadcast_to(v, (data_len,))
+        columns[i] = (columns[i][0], np.broadcast_to(v, (data_len,)))
 
-    if len(columns) < 2:
-        columns = [""] + columns
-        column_values = [np.arange(data_len)] + column_values
+    ys, xs = [(n, np.asarray(v, dtype=np.float32)) for n, v in columns[:2]]
 
-    fig, ax = plt.subplots()
-    ax.set_xlabel(columns[0])
-    ax.set_ylabel(columns[1])
-    ax.plot([0.0], [0.0], color="w", alpha=0.0)
-    fig.tight_layout()
-    ax.grid()
+    cls_columns = []
+    for n, v in columns[2:]:
+        v = np.asarray(v, dtype=str)
+        cls = list(sorted(set(v)))
+        if len(cls) >= 2:
+            cls_columns.append((n, v, cls))
 
-    if len(columns) >= 3:
-        for v in sorted(set(column_values[2])):
-            pick = (column_values[2] == v)
-            add_plot(
-                ax,
-                column_values[0][pick],
-                column_values[1][pick],
-                label=str(v)
-            )
-        plt.legend(loc=3, title=columns[2])
+    def render_ax(ax, *, cls_column=None, pick=slice(None)):
+        ax.plot([0.0], [0.0], color="w", alpha=0.0)
+        ax.grid()
+        ax.set_xlabel("" if xs[0] == "$0" else xs[0])
+        ax.set_ylabel("" if ys[0] == "$0" else ys[0])
+        if cls_column is None:
+            add_plot(ax, xs[1][pick], ys[1][pick])
+        else:
+            for cls in cls_column[2]:
+                sub_pick = (cls_column[1][pick] == cls)
+                add_plot(
+                    ax,
+                    xs[1][pick][sub_pick],
+                    ys[1][pick][sub_pick],
+                    label=str(cls)
+                )
+            ax.legend(loc=3, title=cls_column[0])
+
+    fig, axes = plt.subplots(
+        nrows=1 if len(cls_columns) < 3 else len(cls_columns[2][2]),
+        ncols=1 if len(cls_columns) < 2 else len(cls_columns[1][2]),
+        sharex=True,
+        sharey=True
+    )
+
+    if len(cls_columns) >= 3:
+        for ax1, cls1 in zip(axes, cls_columns[2][2]):
+            for ax2, cls2 in zip(ax1, cls_columns[1][2]):
+                pick = np.logical_and((cls_columns[2][1] == cls1),
+                    (cls_columns[1][1] == cls2))
+                render_ax(ax2, cls_column=cls_columns[0], pick=pick)
+                ax2.set_title(cls1 + " / " + cls2)
+    elif len(cls_columns) >= 2:
+        for ax, cls in zip(axes, cls_columns[1][2]):
+            pick = (cls_columns[1][1] == cls)
+            render_ax(ax, cls_column=cls_columns[0], pick=pick)
+            ax.set_title(cls)
+    elif len(cls_columns) >= 1:
+        render_ax(axes, cls_column=cls_columns[0])
     else:
-        add_plot(ax, column_values[0], column_values[1])
+        render_ax(axes)
 
 def run(*args):
     import os
