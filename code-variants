@@ -18,7 +18,7 @@ if [ "x$1" == x--run ]; then
 fi
 
 INPUT_FILE="$1"
-OUTPUT_DIR="${2:-.}"
+OUTPUT_DIR="${2:-variants}"
 
 if [ "x$INPUT_FILE" = x ]; then
     echo "$INFO" 1>&2
@@ -28,6 +28,12 @@ fi
 SOURCES=( "" )
 LABELS=( "" )
 
+trim() {
+    local v="${1#"${1%%[![:space:]]*}"}"
+    v="${v%"${v##*[![:space:]]}"}"
+    echo -n "$v"
+}
+
 add_branch() {
     IFS='/' read -r -a options <<< "$2"
     if [ "${#options[@]}" -lt 2 ]; then
@@ -36,6 +42,7 @@ add_branch() {
     fi
     REPLACE=
     for option in "${options[@]}"; do
+        option=$(trim "$option")
         if [ "x${1/$option}" != "x$1" ]; then
             if [ ${#option} -gt ${#REPLACE} ]; then
                 REPLACE="$option"
@@ -43,12 +50,13 @@ add_branch() {
         fi
     done
     if [ "x$REPLACE" = x ]; then
-        echo "Error: no variants found in line: '$2'" 1>&2
+        echo "Error: variants not found in line: '$2'" 1>&2
         exit 1
     fi
     NEW_SOURCES=()
     for source in "${SOURCES[@]}"; do
         for option in "${options[@]}"; do
+            option=$(trim "$option")
             NEW_SOURCES+=( "$source${1/$REPLACE/$option}"$'\n' )
         done
     done
@@ -56,7 +64,7 @@ add_branch() {
     NEW_LABELS=()
     for label in "${LABELS[@]}"; do
         for option in "${options[@]}"; do
-            NEW_LABELS+=( "${label}_${option// }" )
+            NEW_LABELS+=( "${label}_$(echo ${option//[^a-zA-Z0-9_.-]/})" )
         done
     done
     LABELS=( "${NEW_LABELS[@]/#_/}" )
@@ -77,6 +85,8 @@ if [ "${#SOURCES[@]}" -lt 2 ]; then
     echo "Error: no variants found in '$INPUT_FILE'" 1>&2
     exit 1
 fi
+
+mkdir -p "$OUTPUT_DIR" || exit 1
 
 for id in "${!SOURCES[@]}"; do
     OUTPUT_FILE="$OUTPUT_DIR/${LABELS[$id]}"
