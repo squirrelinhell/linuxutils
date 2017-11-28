@@ -1,0 +1,23 @@
+#!/bin/bash
+
+INFO="
+Add a fixed string at the beginnning of each line.
+
+Usage:
+    prepend <string> <file1> [ ... <file2> ... ]
+"
+
+STR="$1"
+shift
+
+if [ "x$1" == x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+while [ "x$1" != x ]; do
+    while read -r line; do
+        echo "$STR$line" || exit 1
+    done < "$1" || exit 1
+    shift
+done || exit 1
