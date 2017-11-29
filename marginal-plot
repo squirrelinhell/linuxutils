@@ -119,7 +119,7 @@ def build_plot(input_file, *columns):
                     ax,
                     xs[1][pick][sub_pick],
                     ys[1][pick][sub_pick],
-                    label=str(cls)
+                    label=" " + str(cls)
                 )
             ax.legend(loc=3, title=cls_column[0])
 
