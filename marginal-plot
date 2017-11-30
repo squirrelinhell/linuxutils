@@ -88,15 +88,29 @@ def build_plot(input_file, *columns):
 
     for i in range(len(columns)):
         try:
-            v = eval('lambda data: (' + columns[i][1] + ')')(data)
+            code = columns[i][1]
+            if code[:4] == "log(":
+                code = code[4:-1]
+            v = eval('lambda data: (' + code + ')')(data)
         except:
             sys.stderr.write("Error: invalid column name: '%s'\n"
                 % columns[i][0])
             sys.exit(1)
 
-        columns[i] = (columns[i][0], np.broadcast_to(v, (data_len,)))
+        try:
+            columns[i] = (
+                columns[i][0],
+                np.broadcast_to(v, (data_len,))
+            )
+        except:
+            sys.stderr.write("Error: invalid data shape: '%s'\n"
+                % columns[i][0])
+            sys.exit(1)
 
-    ys, xs = [(n, np.asarray(v, dtype=np.float32)) for n, v in columns[:2]]
+    ys, xs = [
+        [n, np.asarray(v, dtype=np.float32)]
+        for n, v in columns[:2]
+    ]
 
     cls_columns = []
     for n, v in columns[2:]:
@@ -106,8 +120,13 @@ def build_plot(input_file, *columns):
             cls_columns.append((n, v, cls))
 
     def render_ax(ax, *, cls_column=None, pick=slice(None)):
-        ax.plot([0.0], [0.0], color="w", alpha=0.0)
         ax.grid()
+        if xs[0][:4] == "log(":
+            xs[0] = xs[0][4:-1]
+            ax.set_xscale("log", nonposx="clip")
+        if ys[0][:4] == "log(":
+            ys[0] = ys[0][4:-1]
+            ax.set_yscale("log", nonposx="clip")
         ax.set_xlabel("" if xs[0] == "$0" else xs[0])
         ax.set_ylabel("" if ys[0] == "$0" else ys[0])
         if cls_column is None:
