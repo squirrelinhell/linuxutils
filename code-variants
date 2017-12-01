@@ -110,5 +110,5 @@ all: $(patsubst %,'"$OUTPUT_DIR"'/%.out, '"${LABELS[@]}"')
 ' > "$TMPDIR/makefile"
 
 NUM_THREADS=$(grep -c ^processor /proc/cpuinfo) || exit 1
-echo "Maximum threads: $NUM_THREADS" 1>&2
-exec make -f "$TMPDIR/makefile" -j "$NUM_THREADS"
+echo "Max threads: $NUM_THREADS" 1>&2
+make -f "$TMPDIR/makefile" -j "$NUM_THREADS" || exit 1

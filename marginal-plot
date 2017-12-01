@@ -100,19 +100,18 @@ def build_plot(input_file, *columns, **opts):
     columns = [(c, c) for c in columns]
     for key in data:
         columns = [
-            (n, v.replace(key, 'data["' + key + '"]'))
+            (n, v.replace(key, '###["' + key + '"]'))
             for n, v in columns
         ]
 
     for i in range(len(columns)):
         try:
-            code = columns[i][1]
+            code = columns[i][1].replace("###", "data")
             if code[:4] == "log(":
                 code = code[4:-1]
             v = eval('lambda data: (' + code + ')')(data)
         except:
-            sys.stderr.write("Error: invalid column name: '%s'\n"
-                % columns[i][0])
+            sys.stderr.write("Error: invalid data query: '%s'\n" % code)
             sys.exit(1)
 
         try:
@@ -121,8 +120,7 @@ def build_plot(input_file, *columns, **opts):
                 np.broadcast_to(v, (data_len,))
             )
         except:
-            sys.stderr.write("Error: invalid data shape: '%s'\n"
-                % columns[i][0])
+            sys.stderr.write("Error: invalid data shape: '%s'\n" % code)
             sys.exit(1)
 
     ys, xs = [
