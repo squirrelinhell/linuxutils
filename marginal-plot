@@ -51,20 +51,38 @@ def running_mean(data, window):
     sums = np.cumsum(data, 0)
     return (sums[window:] - sums[:-window]) / window
 
-def add_plot(ax, xs, ys, **kwargs):
+def bootstrap_ci(xy, window):
+    window = max(1, int(window) // 2)
+    results = []
+    for i in range(0, len(xy), max(1, window // 10)):
+        d = xy[max(0,i-window):i+window+1]
+        b = np.sort(d[:,1][np.random.choice(len(d), size=10001)])
+        results.append([np.mean(d[:,0]), b[2500], b[5000], b[7500]])
+    return np.array(results, dtype=np.float32)
+
+def add_plot(ax, xs, ys, ci=False, mean=False, **kwargs):
     xy = np.array(list(sorted(zip(xs, ys))), dtype=np.float32)
-    if len(xy) >= 20:
+    if len(xy) < 1:
+        return
+    if ci:
+        xy = bootstrap_ci(xy, len(xy) // 10)
+        color = ax.plot(xy[:,0], xy[:,2], "-", linewidth=2,
+            zorder=4, **kwargs)[0].get_color()
+        ax.plot(xy[:,0], xy[:,2], "w-", linewidth=4, zorder=3)
+        ax.fill_between(xy[:,0], xy[:,1], xy[:,3],
+            color=color, zorder=1, alpha=0.2)
+    elif mean:
         color = ax.plot(xy[:,0], xy[:,1], ".", markersize=10,
-            alpha=0.5, zorder=1)[0].get_color()
+            alpha=0.2, zorder=1)[0].get_color()
         xy = running_mean(xy, len(xy) // 10)
         ax.plot(xy[:,0], xy[:,1], "w-", linewidth=4, zorder=2)
         ax.plot(xy[:,0], xy[:,1], "-", color=color,
             linewidth=2, zorder=3, **kwargs)
-    elif len(xy) >= 1:
+    else:
         ax.plot(xy[:,0], xy[:,1], ".", markersize=10,
             alpha=0.5, zorder=1, **kwargs)
 
-def build_plot(input_file, *columns):
+def build_plot(input_file, *columns, **opts):
     import matplotlib.pyplot as plt
 
     data, data_len = read_file(input_file)
@@ -114,7 +132,7 @@ def build_plot(input_file, *columns):
 
     cls_columns = []
     for n, v in columns[2:]:
-        v = np.asarray(v, dtype=str)
+        v = np.array([str(i) for i in v], dtype=str)
         cls = list(sorted(set(v)))
         if len(cls) >= 2:
             cls_columns.append((n, v, cls))
@@ -134,7 +152,7 @@ def build_plot(input_file, *columns):
 
     def render_ax(ax, *, cls_column=None, pick=slice(None)):
         if cls_column is None:
-            add_plot(ax, xs[1][pick], ys[1][pick])
+            add_plot(ax, xs[1][pick], ys[1][pick], **opts)
         else:
             for cls in cls_column[2]:
                 sub_pick = (cls_column[1][pick] == cls)
@@ -142,7 +160,8 @@ def build_plot(input_file, *columns):
                     ax,
                     xs[1][pick][sub_pick],
                     ys[1][pick][sub_pick],
-                    label=" " + str(cls)
+                    label=" " + str(cls),
+                    **opts
                 )
             ax.legend(loc=3, title=cls_column[0])
         ax.grid()
@@ -176,19 +195,24 @@ def build_plot(input_file, *columns):
 def run(*args):
     import os
 
+    opts = {}
+    while (len(args) >= 1) and (args[0][:2] == "--"):
+        opts[args[0][2:]] = True
+        args = args[1:]
+
     if "PLOT_FILE" in os.environ and len(os.environ["PLOT_FILE"]) >= 1:
         plot_file = os.environ["PLOT_FILE"]
 
         import matplotlib
         matplotlib.use('Agg')
 
-        build_plot(*args)
+        build_plot(*args, **opts)
 
         import matplotlib.pyplot as plt
         plt.gcf().set_size_inches(12, 8)
         plt.gcf().savefig(plot_file, dpi=100)
     else:
-        build_plot(*args)
+        build_plot(*args, **opts)
 
         import matplotlib.pyplot as plt
         plt.show()
