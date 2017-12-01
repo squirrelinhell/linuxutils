@@ -53,7 +53,7 @@ def running_mean(data, window):
 
 def add_plot(ax, xs, ys, **kwargs):
     xy = np.array(list(sorted(zip(xs, ys))), dtype=np.float32)
-    if len(xy) >= 100:
+    if len(xy) >= 20:
         color = ax.plot(xy[:,0], xy[:,1], ".", markersize=10,
             alpha=0.5, zorder=1)[0].get_color()
         xy = running_mean(xy, len(xy) // 10)
@@ -119,16 +119,20 @@ def build_plot(input_file, *columns):
         if len(cls) >= 2:
             cls_columns.append((n, v, cls))
 
+    def format_ax(label, prop):
+        lims = prop("get_%slim")()
+        if label[:4] == "log(":
+            label = label[4:-1]
+            prop("set_%sscale")("log", nonposx="clip", nonposy="clip")
+            if lims[0] > 1.0:
+                prop("set_%slim")(1.0, None)
+            else:
+                prop("set_%slim")(None, max(lims[1], 1.0))
+        else:
+            prop("set_%slim")(min(lims[0], 0.0), max(lims[1], 0.0))
+        prop("set_%slabel")("" if label == "$0" else label)
+
     def render_ax(ax, *, cls_column=None, pick=slice(None)):
-        ax.grid()
-        if xs[0][:4] == "log(":
-            xs[0] = xs[0][4:-1]
-            ax.set_xscale("log", nonposx="clip")
-        if ys[0][:4] == "log(":
-            ys[0] = ys[0][4:-1]
-            ax.set_yscale("log", nonposx="clip")
-        ax.set_xlabel("" if xs[0] == "$0" else xs[0])
-        ax.set_ylabel("" if ys[0] == "$0" else ys[0])
         if cls_column is None:
             add_plot(ax, xs[1][pick], ys[1][pick])
         else:
@@ -141,6 +145,9 @@ def build_plot(input_file, *columns):
                     label=" " + str(cls)
                 )
             ax.legend(loc=3, title=cls_column[0])
+        ax.grid()
+        format_ax(xs[0], lambda prop: getattr(ax, prop % "x"))
+        format_ax(ys[0], lambda prop: getattr(ax, prop % "y"))
 
     fig, axes = plt.subplots(
         nrows=1 if len(cls_columns) < 3 else len(cls_columns[2][2]),
