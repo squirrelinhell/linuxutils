@@ -5,7 +5,14 @@ Encode an audio file to OGG format, or copy the stream if possible.
 
 Usage:
     ifneeded2ogg <infile> [ <outfile.ogg> ]
+    ifneeded2ogg --force <infile> [ <outfile.ogg> ]
 "
+
+FORCE=
+if [ "x$1" = x--force ]; then
+    FORCE=1
+    shift
+fi
 
 INFILE="$1"
 OUTFILE="$2"
@@ -15,13 +22,11 @@ if [ "x$INFILE" = x -o ! -f "$INFILE" ]; then
     exit 1
 fi
 
-case "$OUTFILE" in
-    "") OUTFILE=$(echo "$INFILE" | sed -r -e 's/\.([a-zA-Z0-9]{2,5})$//').ogg ;;
-    *.ogg) ;;
-    *) OUTFILE="$OUTFILE.ogg" ;;
-esac
+if [ "x$OUTFILE" = x ]; then
+    OUTFILE=$(echo "$INFILE" | sed -r -e 's/\.([a-zA-Z0-9]{2,5})$//').ogg
+fi
 
-if [ -e "$OUTFILE" ]; then
+if [ "x$FORCE" != x1 ] && [ -e "$OUTFILE" ]; then
     echo "Error: file '$OUTFILE' already exists" 1>&2
     exit 1
 fi
@@ -34,4 +39,4 @@ if ! ffmpeg -i "$INFILE" -vn -acodec copy "$TMPDIR/out.ogg" ; then
     oggenc -q 5 "$TMPDIR/out.wav" -o "$TMPDIR/out.ogg" || exit 1
 fi
 
-cp "$TMPDIR/out.ogg" "$OUTFILE" || exit 1
+cat "$TMPDIR/out.ogg" > "$OUTFILE" || exit 1
