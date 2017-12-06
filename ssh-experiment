@@ -1,0 +1,87 @@
+#!/bin/bash
+
+INFO="
+Sync a git repository to a remote server, execute a command
+on the remote copy, and get results as a .tgz archive.
+
+Usage:
+    ssh-experiment <server> <command> [ ... <arguments>... ]
+"
+
+
+SSH_OPTS=()
+while [ "x${1::1}" = x- ]; do
+    SSH_OPTS+=("$1")
+    shift
+done
+
+for opt in "${SSH_OPTS[@]}"; do
+    echo "'$opt'"
+done
+
+SERVER="$1"
+shift
+
+if [ "x$SERVER" = x -o "x$1" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+GIT_ROOT="$(git rev-parse --show-toplevel)" || exit 1
+GIT_NAME=$(basename "$GIT_ROOT") || exit 1
+EXEC_DIR="$(git rev-parse --show-prefix)" || exit 1
+EXP_NAME="${GIT_NAME}_$(date '+%Y-%m-%d_%H-%M')_$RANDOM" || exit 1
+
+TMPDIR=$(mktemp -d) || exit 1
+trap "rm -rf $TMPDIR" EXIT
+
+echo "
+cd $EXP_NAME || exit 1
+( cd \"$GIT_NAME/$EXEC_DIR\" && $@ ) &> output
+echo \$? > exit_code
+tar -c output exit_code \"$GIT_NAME\" | gzip > results.tmp
+if [ \"x\${PIPESTATUS[0]}\${PIPESTATUS[1]}\" = x00 ]; then
+    mv results.tmp results.tgz
+    rm -rf \"$GIT_NAME\" || true
+else
+    rm results.tmp || true
+fi
+" > "$TMPDIR/run.sh" || exit 1
+chmod +x "$TMPDIR/run.sh" || exit 1
+
+echo "Sending experiment '$EXP_NAME' to '$SERVER'..." 1>&2
+
+while ! rsync "${SSH_OPTS[@]}" \
+        -rlxt \
+        --omit-dir-times \
+        --progress \
+        --exclude='.git' \
+        "$GIT_ROOT" \
+        "$TMPDIR/" \
+        "$SERVER:~/$EXP_NAME" </dev/null 1>&2; do
+    echo 1>&2
+    echo "RSYNC FAILED    (retry in 60s...)" 1>&2
+    echo 1>&2
+    sleep 60 || exit 1
+done || exit 1
+
+echo "Staring experiment '$EXP_NAME'..." 1>&2
+
+ssh "${SSH_OPTS[@]}" \
+    "$SERVER" \
+    "nohup bash $EXP_NAME/run.sh &> $EXP_NAME/log </dev/null &" || exit 1
+
+echo "Waiting for results..." 1>&2
+
+while sleep 10; do
+    STATUS=$(ssh "${SSH_OPTS[@]}" "$SERVER" \
+        "if [ -e \"$EXP_NAME/results.tgz\" ]; then echo OK; fi")
+    if [ "x$STATUS" = xOK ]; then
+        break
+    fi
+done
+
+echo "Downloading results..." 1>&2
+
+scp "${SSH_OPTS[@]}" "$SERVER:${EXP_NAME}/results.tgz" \
+    "__${EXP_NAME}.tgz" || exit 1
