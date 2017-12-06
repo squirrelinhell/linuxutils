@@ -5,7 +5,7 @@ Start vncserver on a remote host, set up ssh tunneling,
 and connect to the session using vncviewer.
 
 Usage:
-    sshvnc <ssh options>
+    ssh-vnc <ssh options>
 "
 
 if [ "x$1" = x ]; then
