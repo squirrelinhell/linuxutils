@@ -51,6 +51,7 @@ while ! rsync "${SSH_OPTS[@]}" \
         --omit-dir-times \
         --progress \
         --exclude="/$GIT_NAME/.git" \
+        --exclude='__*.tgz' \
         "$GIT_ROOT" \
         "$SERVER:~/$EXP_NAME" </dev/null 1>&2; do
     echo 1>&2
@@ -65,6 +66,8 @@ ssh "${SSH_OPTS[@]}" \
     "$SERVER" \
     "nohup bash -c '$RUN_SCRIPT' &>/dev/null </dev/null &" || exit 1
 
+START_TIME=$(date +'%s')
+
 echo "Waiting for results..." 1>&2
 
 while sleep 10; do
@@ -75,7 +78,11 @@ while sleep 10; do
     fi
 done
 
-echo "Downloading results..." 1>&2
+TOTAL_TIME=$(($(date +'%s') - $START_TIME))
+TOTAL_MIN=$(($TOTAL_TIME / 60))
+TOTAL_SEC=$(printf '%02d' $(($TOTAL_TIME % 60)))
+
+echo "Downloading results (after ${TOTAL_MIN}m ${TOTAL_SEC}s)..." 1>&2
 
 while ! scp "${SSH_OPTS[@]}" \
         "$SERVER:${EXP_NAME}.tgz" \
