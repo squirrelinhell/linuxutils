@@ -30,24 +30,19 @@ fi
 GIT_ROOT="$(git rev-parse --show-toplevel)" || exit 1
 GIT_NAME=$(basename "$GIT_ROOT") || exit 1
 EXEC_DIR="$(git rev-parse --show-prefix)" || exit 1
-EXP_NAME="${GIT_NAME}_$(date '+%Y-%m-%d_%H-%M')_$RANDOM" || exit 1
+EXP_NAME="${GIT_NAME}_$(date '+%Y-%m-%d_%H-%M-%S')_$RANDOM" || exit 1
 
-TMPDIR=$(mktemp -d) || exit 1
-trap "rm -rf $TMPDIR" EXIT
-
-echo "
-cd $EXP_NAME || exit 1
-( cd \"$GIT_NAME/$EXEC_DIR\" && $@ ) &> output
-echo \$? > exit_code
-tar -c output exit_code \"$GIT_NAME\" | gzip > results.tmp
+RUN_SCRIPT="
+( cd \"$EXP_NAME/$GIT_NAME/$EXEC_DIR\" && $@ ) &>\"$EXP_NAME/output\"
+echo \$? >\"$EXP_NAME/exit_code\"
+( cd \"$EXP_NAME\" && tar -c output exit_code \"$GIT_NAME\" ) | gzip >\"$EXP_NAME/results.tmp\"
 if [ \"x\${PIPESTATUS[0]}\${PIPESTATUS[1]}\" = x00 ]; then
-    mv results.tmp results.tgz
-    rm -rf \"$GIT_NAME\" || true
+    mv \"$EXP_NAME/results.tmp\" \"$EXP_NAME.tgz\"
+    rm -rf \"$EXP_NAME\" || true
 else
-    rm results.tmp || true
+    rm \"$EXP_NAME/results.tmp\" || true
 fi
-" > "$TMPDIR/run.sh" || exit 1
-chmod +x "$TMPDIR/run.sh" || exit 1
+"
 
 echo "Sending experiment '$EXP_NAME' to '$SERVER'..." 1>&2
 
@@ -55,9 +50,8 @@ while ! rsync "${SSH_OPTS[@]}" \
         -rlxt \
         --omit-dir-times \
         --progress \
-        --exclude='.git' \
+        --exclude="/$GIT_NAME/.git" \
         "$GIT_ROOT" \
-        "$TMPDIR/" \
         "$SERVER:~/$EXP_NAME" </dev/null 1>&2; do
     echo 1>&2
     echo "RSYNC FAILED    (retry in 60s...)" 1>&2
@@ -69,13 +63,13 @@ echo "Staring experiment '$EXP_NAME'..." 1>&2
 
 ssh "${SSH_OPTS[@]}" \
     "$SERVER" \
-    "nohup bash $EXP_NAME/run.sh &> $EXP_NAME/log </dev/null &" || exit 1
+    "nohup bash -c '$RUN_SCRIPT' &>/dev/null </dev/null &" || exit 1
 
 echo "Waiting for results..." 1>&2
 
 while sleep 10; do
     STATUS=$(ssh "${SSH_OPTS[@]}" "$SERVER" \
-        "if [ -e \"$EXP_NAME/results.tgz\" ]; then echo OK; fi")
+        "if [ -e \"$EXP_NAME.tgz\" ]; then echo OK; fi")
     if [ "x$STATUS" = xOK ]; then
         break
     fi
@@ -83,5 +77,11 @@ done
 
 echo "Downloading results..." 1>&2
 
-scp "${SSH_OPTS[@]}" "$SERVER:${EXP_NAME}/results.tgz" \
-    "__${EXP_NAME}.tgz" || exit 1
+while ! scp "${SSH_OPTS[@]}" \
+        "$SERVER:${EXP_NAME}.tgz" \
+        "__${EXP_NAME}.tgz"; do
+    echo 1>&2
+    echo "SCP FAILED    (retry in 60s...)" 1>&2
+    echo 1>&2
+    sleep 60 || exit 1
+done
