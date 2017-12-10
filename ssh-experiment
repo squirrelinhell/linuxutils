@@ -60,7 +60,7 @@ while ! rsync "${SSH_OPTS[@]}" \
     sleep 60 || exit 1
 done || exit 1
 
-echo "Staring experiment '$EXP_NAME'..." 1>&2
+echo "Starting experiment '$EXP_NAME'..." 1>&2
 
 ssh "${SSH_OPTS[@]}" \
     "$SERVER" \
@@ -92,3 +92,5 @@ while ! scp "${SSH_OPTS[@]}" \
     echo 1>&2
     sleep 60 || exit 1
 done
+
+play -q -n synth 0.1 sin C5 || true
