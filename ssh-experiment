@@ -31,6 +31,9 @@ GIT_ROOT="$(git rev-parse --show-toplevel)" || exit 1
 GIT_NAME=$(basename "$GIT_ROOT") || exit 1
 EXEC_DIR="$(git rev-parse --show-prefix)" || exit 1
 EXP_NAME="${GIT_NAME}_$(date '+%Y-%m-%d_%H-%M-%S')_$RANDOM" || exit 1
+CONTENT="$(find "${GIT_ROOT}" -mindepth 1 -printf '%P\n')" || exit 1
+IGNORED="$(cd "${GIT_ROOT}" && git ls-files --others --ignored \
+    --exclude-standard --directory)" || exit 1
 
 RUN_SCRIPT="
 ( cd \"$EXP_NAME/$GIT_NAME/$EXEC_DIR\" && $@ ) &>\"$EXP_NAME/output\"
@@ -51,6 +54,10 @@ while ! rsync "${SSH_OPTS[@]}" \
         --omit-dir-times \
         --progress \
         --exclude="/$GIT_NAME/.git" \
+        --exclude-from=<(echo "/ignored" && \
+            while read f; do \
+                [ "x$f" = x ] || echo "/${GIT_NAME}/${f%/}"; \
+            done <<< "$IGNORED") \
         --exclude='__*.tgz' \
         "$GIT_ROOT" \
         "$SERVER:~/$EXP_NAME" </dev/null 1>&2; do
