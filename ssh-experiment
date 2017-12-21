@@ -80,7 +80,7 @@ while ! rsync "${SSH_OPTS[@]}" \
     sleep 60 || exit 1
 done || exit 1
 
-echo "Starting experiment '$EXP_NAME'..." 1>&2
+echo "Starting experiment '$EXP_NAME' on '$SERVER'..." 1>&2
 
 ssh "${SSH_OPTS[@]}" \
     "$SERVER" \
