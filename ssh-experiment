@@ -49,9 +49,10 @@ if [ "x$GIT_STATUS" != x ]; then
 fi
 
 RUN_SCRIPT="
+echo \"$@\" &>\"$EXP_NAME/command\"
 ( cd \"$EXP_NAME/$GIT_NAME/$EXEC_DIR\" && $@ ) &>\"$EXP_NAME/output\"
 echo \$? >\"$EXP_NAME/exit_code\"
-( cd \"$EXP_NAME\" && tar -c output exit_code \"$GIT_NAME\" ) | gzip >\"$EXP_NAME/results.tmp\"
+( cd \"$EXP_NAME\" && tar -c command output exit_code \"$GIT_NAME\" ) | gzip >\"$EXP_NAME/results.tmp\"
 if [ \"x\${PIPESTATUS[0]}\${PIPESTATUS[1]}\" = x00 ]; then
     mv \"$EXP_NAME/results.tmp\" \"$EXP_NAME.tgz\"
     rm -rf \"$EXP_NAME\" || true
