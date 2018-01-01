@@ -4,8 +4,8 @@ INFO="
 Download high resolution images based on Google search results.
 
 Usage:
-    google-images <search query>
     google-images --stdin
+    google-images <search query>
 "
 
 if [ "x$1" = "x" ]; then
@@ -13,71 +13,90 @@ if [ "x$1" = "x" ]; then
     exit 1
 fi
 
-USER_AGENT="Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36"
+MAX_THREADS=8
+GLOBAL_TMPDIR=$(mktemp -d) || exit 1
+echo 0 > "$GLOBAL_TMPDIR/tid"
+touch "$GLOBAL_TMPDIR/lock"
 
 function on_exit() {
+    echo Terminating jobs $(jobs -p) 1>&2
     for p in $(jobs -p); do
         kill $p >/dev/null 2>&1
     done
+    rm -rf "$GLOBAL_TMPDIR"
+}
+trap on_exit EXIT
+
+function thread_wrapper() {
+    mkdir "$TMPDIR" || return 1
+    "$@"
     rm -rf "$TMPDIR"
 }
 
-function wait_new_job() {
-    while ! [ $(jobs | wc -l) -lt 10 ]; do
-        sleep 0.2
-    done
+function start_thread() {
+    while ! [ $(jobs | wc -l) -lt "$MAX_THREADS" ]; do
+        sleep 0.1 || return 1
+    done || return 1
+    TID=$( ( \
+        flock -x 9 \
+        && local tid=$(cat "$GLOBAL_TMPDIR/tid") \
+        && let tid=tid+1 \
+        && echo "$tid" \
+        && echo "$tid" > "$GLOBAL_TMPDIR/tid" \
+    ) 9> "$GLOBAL_TMPDIR/lock" )
+    TMPDIR="$GLOBAL_TMPDIR/$TID" thread_wrapper "$@" &
 }
 
-function download_file() {
-    local id="$1"
-    local url="$2"
-    if ! (cd "$TMPDIR" && \
-            timeout 60 \
+USER_AGENT="Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36"
+
+function download_image() {
+    local url="$1"
+    touch .done || return 1
+
+    if grep -q -F "$url" .done; then
+        echo "Skipped: '$url'" 1>&2
+        return 0
+    fi
+
+    if ! (cd "$TMPDIR" && timeout 60 \
             wget -q \
                 --user-agent="$USER_AGENT" \
                 --referer="$url" \
-                "$url" -O "$id"); then
-        echo "Warning: could not download '$url'" 1>&2
-        rm "$TMPDIR/$id" 2>/dev/null || true
+                "$url" -O img); then
+        echo "Error: could not download '$url'" 1>&2
         return 1
     fi
-    if ! (cd "$TMPDIR" && \
-            memlimit 102400 \
-            convert "$id" \
-                -strip \
-                "$id.ppm" 2>/dev/null); then
-        echo "Warning: could not parse '$url'" 1>&2
-        rm "$TMPDIR/$id" "$TMPDIR/$id.ppm" 2>/dev/null || true
+
+    if ! (cd "$TMPDIR" && memlimit 102400 \
+            convert img -strip -resize "4000x4000>" \
+                img.ppm 2>/dev/null); then
+        echo "Error: could not parse '$url'" 1>&2
         return 1
     fi
-    rm "$TMPDIR/$id" || true
-    local wh=$(head -n 2 "$TMPDIR/$id.ppm" | tail -n 1) || return 1
+
+    local wh=$(head -n 2 "$TMPDIR/img.ppm" | tail -n 1) || return 1
     read w h <<<"$wh" || return 1
+
     if ! [ "$w" -ge 1400 -a "$h" -ge 900 ] ; then
-        echo "Skipped: '$url' (${w}x${h}px)" 1>&2
-        rm "$TMPDIR/$id.ppm" || true
+        echo "Too small: '$url' (${w}x${h}px)" 1>&2
         return 1
     fi
-    local hash=$(cd "$TMPDIR" && image-hash "$id.ppm") || return 1
-    touch .done || return 1
-    if [ -e "$hash.jpg" ] || grep -q "^$hash" .done; then
-        echo "Skipped: '$url' == '$hash'" 1>&2
-        if ! grep -F "$hash $url" .done; then
-            echo "$hash $url" >> .done || true
-        fi
-        rm "$TMPDIR/$id.ppm" || true
+
+    local hash=$(cd "$TMPDIR" && image-hash img.ppm) || return 1
+    local output_file="$hash.jpg"
+
+    if [ -e "$output_file" ] || hashgrep "$hash" <.done >/dev/null; then
+        echo "Duplicate: '$url' ($hash)" 1>&2
+        echo "$hash $url $w $h" >> .done || true
         return 1
     fi
-    convert "$TMPDIR/$id.ppm" -quality 95 "$hash.jpg" || return 1
-    if ! grep -F "$hash $url" .done; then
-        echo "$hash $url" >> .done || true
-    fi
-    rm "$TMPDIR/$id.ppm" || true
+
+    convert "$TMPDIR/img.ppm" -quality 90 "$TMPDIR/$output_file" || return 1
+    mv "$TMPDIR/$output_file" . || return 1
+    echo "$hash $url $w $h" >> .done || true
 }
 
-function google_query() {
-    local id="$1"
-    shift
+function run_query() {
     local query=$(echo $@)
     echo "Downloading results for: $query" 1>&2
     query=${query// /%20}
@@ -91,38 +110,26 @@ function google_query() {
     page=$(hxnormalize -x <<<"$page") || return 1
     page=$(hxselect div.rg_meta -s $'\n' <<<"$page") || return 1
 
-    local links=$(sed -r -e 's|^.*"ou":"([^"]*)".*$|\1|;t;d' <<<"$page") || exit 1
-    num_links=$(wc -l <<<"$links") || exit 1
+    local links=$(sed -r -e 's|^.*"ou":"([^"]*)".*$|\1|;t;d' <<<"$page") || return 1
 
-    if ! [ "$num_links" -ge 1 ]; then
-        echo "Error: could not find images in '$url'" 1>&2
+    if [ "x$links" = x ]; then
+        echo "Error: could not find images in '$query'" 1>&2
         return 1
     fi
 
-    local image_id=1
     while read link; do
-        wait_new_job
-        download_file "${id}_${image_id}" "$link" &
-        let image_id=image_id+1
+        start_thread download_image "$link"
     done <<<"$links"
 }
 
-TMPDIR=$(mktemp -d) || exit 1
-trap on_exit EXIT
-
 if [ "x$1" = "x--stdin" ]; then
     shift
-    QID=1
     while read line; do
         line=$(echo $line)
-        if [ "x$line" != x ]; then
-            wait_new_job
-            google_query "$QID" "$@" "$line"
-            let QID=QID+1
-        fi
+        [ "x$line" = x ] || run_query "$@" "$line"
     done
 else
-    google_query 1 "$@"
+    run_query "$@"
 fi
 
 wait
