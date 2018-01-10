@@ -1,0 +1,32 @@
+#!/bin/bash
+
+INFO="
+Clean up backgrounds of mostly-white grayscale images.
+
+Usage:
+    image-bw-scan <input image or folder>
+"
+
+if [ "x$1" = x ]; then
+    echo "$INFO" 1>&2
+    exit 1
+fi
+
+INPUT="$1"
+shift
+
+exec batch-convert "$INPUT" png \
+    convert - \
+    -strip \
+    -background white -flatten -alpha off -colorspace gray \
+    -negate \
+    \( -clone 0 -resize 10% \
+        \( +clone -repage +1+0 \) +swap -layers merge \
+        \( +clone -repage +0+1 \) +swap -layers merge \
+        -gaussian-blur 0x10 -level 0,90% \
+        -resize 1000% \
+    \) \
+    -compose minus_src -composite \
+    -auto-level \
+    -negate \
+    "$@" png:-

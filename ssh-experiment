@@ -45,7 +45,7 @@ if [ "x$GIT_STATUS" != x ]; then
     echo -n "Please name the experiment: "
     read USER_NAME
     USER_NAME=$(echo $USER_NAME)
-    EXP_NAME="${EXP_NAME}_${USER_NAME/ /_}"
+    EXP_NAME="${EXP_NAME}_${USER_NAME// /_}"
 fi
 
 RUN_SCRIPT="
