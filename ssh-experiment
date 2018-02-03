@@ -87,11 +87,16 @@ ssh "${SSH_OPTS[@]}" \
     "$SERVER" \
     "nohup bash -c '$RUN_SCRIPT' &>/dev/null </dev/null &" || exit 1
 
+echo "Experiment started!" 1>&2
 START_TIME=$(date +'%s')
+
+ssh "${SSH_OPTS[@]}" \
+    "$SERVER" \
+    "tail --follow=name \"$EXP_NAME/output\" 2>/dev/null" || true
 
 echo "Waiting for results..." 1>&2
 
-while sleep 10; do
+while sleep 2; do
     STATUS=$(ssh "${SSH_OPTS[@]}" "$SERVER" \
         "if [ -e \"$EXP_NAME.tgz\" ]; then echo OK; fi")
     if [ "x$STATUS" = xOK ]; then

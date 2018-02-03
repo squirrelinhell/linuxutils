@@ -35,4 +35,4 @@ sleep $SLEEP || true
 unblock_all || exit 1
 trap "" EXIT
 
-play -q -n synth 0.2 sin C5 sin G5 sin C6 delay 0.0 0.2 0.4 &
+play -q -n synth 0.2 sin C5 sin G5 sin C6 delay 0.0 0.2 0.4

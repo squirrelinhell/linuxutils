@@ -1,0 +1,35 @@
+#!/bin/bash
+
+INFO="
+Take a 5 minute break after 25 minutes from now.
+
+Usage:
+    pomodoro -s
+"
+
+if [ "x${1#-}" = xs ]; then
+    shift
+    SELF_PATH=$(readlink -m "${BASH_SOURCE[0]}") || exit 1
+    SELF_PROC_NAME=$(cat "/proc/$$/status" | grep '^Name:' | cut -f 2) || exit 1
+    RUNNING=$(pgrep -u "$UID" "$SELF_PROC_NAME") || exit 1
+    if echo "$RUNNING" | grep -v "^$$"'$' >/dev/null; then
+        echo "Error: another instance seems to be running" 1>&2
+        exit 1
+    fi
+    exec setsid setsid "$SELF_PATH" --nobg "$@" </dev/null >/dev/null 2>&1
+fi
+
+if [ "x$1" = x--nobg ]; then
+    trap "" HUP
+    trap "kill 0" EXIT
+    notify-send "Pomodoro Started" \
+        "Take a 5 minute break after 25 minutes from now."
+    sleep $((60 * 25)) || exit 1
+    notify-send "Pomodoro Finished" \
+        "Take a 5 minute break!"
+    blockscreen 5
+    exit 0
+fi
+
+echo "$INFO" 1>&2
+exit 1
